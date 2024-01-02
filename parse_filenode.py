@@ -1,16 +1,23 @@
 import argparse
 import pathlib
 import struct
+import base64
 import functools
 from enum import Enum
 
-def FilenodePath(path):
-    filenode_path = pathlib.Path(path)
-    if not filenode_path.exists():
+def Path(path):
+    path = pathlib.Path(path)
+    if not path.exists():
         raise argparse.ArgumentTypeError('Supplied filenode path does not exist')
-    if not filenode_path.is_file():
+    if not path.is_file():
         raise argparse.ArgumentTypeError('Supplied filenode path is not a file')
-    return filenode_path
+    return path
+
+def Base64Data(b64_data):
+    try:
+        return base64.b64decode(b64_data)
+    except:
+        raise argparse.ArgumentTypeError('Invalid base64 data supplied')
 
 
 class LpFlags(Enum):
@@ -177,11 +184,13 @@ class Page:
         
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-f', '--filenode-path', required=True, type=FilenodePath, help='Path to the target PostgreSQL filenode')
+parser.add_argument('-f', '--filenode-path', required=True, type=Path, help='Path to the target PostgreSQL filenode')
 parser.add_argument('-m', '--mode', choices=['list', 'read'], help='List items in the target filenode')
 
 parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
 parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
+
+parser.add_argument('-d', '--b64-data', type=Base64Data, help='New item data to set; encoded in Base64')
 
 
 class Filenode:
@@ -261,4 +270,8 @@ if __name__ == '__main__':
         else:
             print('[-] please provide page and item indexes via --page and --item arguments')
         
-            
+    if args.mode == 'update':
+        if args.page and args.item and args.b64_data:
+            filenode.update_item(args.page, args.item, args.b64_data)
+        else:
+            print('[-] please provide page, item indexes, and new item data via the --page, --item, and --b64-data arguments')
