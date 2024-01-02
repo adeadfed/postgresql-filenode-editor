@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import pathlib
 import struct
@@ -308,6 +310,7 @@ class Filenode:
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print(args)
     filenode = Filenode(args.filenode_path)
     
     if args.mode == 'list':
@@ -316,12 +319,12 @@ if __name__ == '__main__':
         else:
             filenode.list_pages()
     if args.mode == 'read':
-        if args.page and args.item:
+        if args.page is not None and args.item is not None:
             filenode.get_item(args.page, args.item)
         else:
             print('[-] please provide page and item indexes via --page and --item arguments')    
     if args.mode == 'update':
-        if args.page and args.item and args.b64_data:
+        if args.page is not None and args.item is not None and args.b64_data is not None:
             filenode.update_item(args.page, args.item, args.b64_data)
             filenode.save_to_path(args.filenode_path.with_suffix('.new'))
         else:
