@@ -68,11 +68,16 @@ class PageHeaderData:
         # zero out checksum, just to be super safe with editing data
         header_bytes += struct.pack('<H', 0)
         # pack pd_flags into 32 bit integer via bitwise or
-        header_bytes += struct.pack('<H', functools.reduce(lambda x, y: x.value | y.value, self.pd_flags))  
+        header_bytes += struct.pack('<H', functools.reduce(
+            lambda x, y: x | y, 
+            [x.value for x in self.pd_flags]
+            )
+        )  
         header_bytes += struct.pack('<H', self.pd_lower)
         header_bytes += struct.pack('<H', self.pd_upper)
         header_bytes += struct.pack('<H', self.pd_special)
-        header_bytes += struct.pack('<H', self.pd_pagesize_version)
+        # pack pd_pagesize_version
+        header_bytes += struct.pack('<H', self.size | self.version.value)
         header_bytes += struct.pack('<I', self.pd_prune_xid)
         
         return header_bytes
@@ -86,16 +91,16 @@ class ItemIdData:
         # lower 15 bits store the item offset
         self.lp_off = _encoded_data & 0x7fff
         # middle 2 bits store the item flags
-        self.lp_flags = _encoded_data & 0x18000 >> 15
+        self.lp_flags = LpFlags((_encoded_data & 0x18000) >> 15)
         # upper 15 bits store the item length
         self.lp_len = (_encoded_data & 0xfffe0000) >> 17
 
     def to_bytes(self):
         item_id = 0
         # upper 15 bits store the item length
-        item_id = (item_id | self.lp_len) << 15
+        item_id = item_id | self.lp_len << 17
         # middle 2 bits store the item flags
-        item_id = (item_id | self.lp_flags) << 2
+        item_id = item_id | self.lp_flags.value << 15
         # lower 15 bits store the item offset
         item_id = item_id | self.lp_off
         return struct.pack('<I', item_id)
@@ -111,6 +116,8 @@ class BlockIdData:
         block_data_bytes = b''
         block_data_bytes += struct.pack('<H', self.bi_hi)
         block_data_bytes += struct.pack('<H', self.bi_lo)
+        
+        return block_data_bytes
 
 class ItemPointerData:
     _FIELD_SIZE = 6
@@ -123,6 +130,8 @@ class ItemPointerData:
         item_pointer_bytes = b''
         item_pointer_bytes += self.ip_blkid.to_bytes()
         item_pointer_bytes += struct.pack('<H', self.ip_posid)
+        
+        return item_pointer_bytes
 
 
 class HeapTupleHeaderData:
@@ -145,6 +154,9 @@ class HeapTupleHeaderData:
         self.t_infomask = struct.unpack('<H', heap_tuple_header_bytes[20:22])[0]
         self.t_hoff = struct.unpack('B', heap_tuple_header_bytes[22:23])[0]
 
+        # get number of columns in a row
+        self.column_count = self.t_infomask2 & 0x07FF
+
     def to_bytes(self):
         heap_tuple_header_bytes = b''
         heap_tuple_header_bytes += struct.pack('<I', self.t_xmin)
@@ -162,6 +174,13 @@ class Item:
         self.header = HeapTupleHeaderData(filenode_bytes[offset:offset+HeapTupleHeaderData._FIELD_SIZE])
         self.data = filenode_bytes[offset+self.header.t_hoff:offset+length]
 
+    def to_bytes(self):
+        item_bytes = b''
+        item_bytes += self.header.to_bytes()
+        item_bytes += self.data
+        
+        return item_bytes
+
 
 class Page:
     def __init__(self, offset, filenode_bytes):
@@ -172,6 +191,8 @@ class Page:
         # pointers to page entries are stored in the ItemIdData
         # objects between the header and the pd_lower offsets
         # each 4 bytes represent a separate ItemIdData object
+        # ItemIdData pointers end at the start of empty space,
+        # indicated by header.pd_lower field
         items_id_data = filenode_bytes[offset+PageHeaderData._FIELD_SIZE:offset + self.header.pd_lower]
         self.item_ids = [ItemIdData(items_id_data[i:i+4]) for i in range (0, len(items_id_data), 4)]
         # iterate over item ids, populate actual items (i.e. rows) in the page
@@ -181,11 +202,28 @@ class Page:
         # read HeapTupleHeaderData object
         self.items = [Item(offset+x.lp_off, x.lp_len, filenode_bytes) for x in self.item_ids]
         
+    def to_bytes(self):
+        page_bytes = b''
+        # pack page header
+        page_bytes += self.header.to_bytes()
+        # pack ItemIdData pointers
+        page_bytes += b''.join(x.to_bytes() for x in self.item_ids)
+        # pad empty space with null bytes
+        # empty space starts at the end of ItemItData pointers
+        # indicated by header.pd_lower value
+        # and ends at the start of the item entries
+        # indicated by header.pd_upper value
+        page_bytes += bytes(self.header.pd_upper - self.header.pd_lower)
+        # pack page items
+        # items must be reversed in order
+        page_bytes += b''.join(x.to_bytes() for x in reversed(self.items))
+        
+        return page_bytes
         
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--filenode-path', required=True, type=Path, help='Path to the target PostgreSQL filenode')
-parser.add_argument('-m', '--mode', choices=['list', 'read'], help='List items in the target filenode')
+parser.add_argument('-m', '--mode', choices=['list', 'read', 'update'], help='List items in the target filenode')
 
 parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
 parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
@@ -257,6 +295,8 @@ class Filenode:
 if __name__ == '__main__':
     args = parser.parse_args()
     filenode = Filenode(args.filenode_path)
+    
+    filenode.pages[0].to_bytes()
     
     if args.mode == 'list':
         if args.page:
