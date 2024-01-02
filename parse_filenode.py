@@ -2,6 +2,7 @@ import argparse
 import pathlib
 import struct
 import base64
+import math
 import functools
 from enum import Enum
 
@@ -27,6 +28,7 @@ class LpFlags(Enum):
     LP_DEAD = 0x3
 
 class PdFlags(Enum):
+    PD_UNDEFINED = 0x0
     PD_HAS_FREE_LINES = 0x1
     PD_PAGE_FULL = 0x2
     PD_ALL_VISIBLE = 0x4
@@ -49,6 +51,8 @@ class PageHeaderData:
         _pd_flags = struct.unpack('<H', header_bytes[10:12])[0]
         # parse pd_flags raw value into flags
         self.pd_flags = [x for x in PdFlags if x.value & _pd_flags]
+        if not self.pd_flags:
+            self.pd_flags = [PdFlags.PD_UNDEFINED] 
 
         self.pd_lower = struct.unpack('<H', header_bytes[12:14])[0]
         self.pd_upper = struct.unpack('<H', header_bytes[14:16])[0]
@@ -70,7 +74,7 @@ class PageHeaderData:
         # pack pd_flags into 32 bit integer via bitwise or
         header_bytes += struct.pack('<H', functools.reduce(
             lambda x, y: x | y, 
-            [x.value for x in self.pd_flags]
+                [x.value for x in self.pd_flags]
             )
         )  
         header_bytes += struct.pack('<H', self.pd_lower)
@@ -165,7 +169,9 @@ class HeapTupleHeaderData:
         heap_tuple_header_bytes += self.t_ctid.to_bytes()
         heap_tuple_header_bytes += struct.pack('<H', self.t_infomask2)
         heap_tuple_header_bytes += struct.pack('<H', self.t_infomask)
-        heap_tuple_header_bytes += struct.pack('B', self.t_hoff)
+        # intentionally write a null byte after the t_hoff for now
+        # there should be a null bitmap after the t_hoff
+        heap_tuple_header_bytes += struct.pack('<H', self.t_hoff)
         
         return heap_tuple_header_bytes
 
@@ -216,7 +222,16 @@ class Page:
         page_bytes += bytes(self.header.pd_upper - self.header.pd_lower)
         # pack page items
         # items must be reversed in order
-        page_bytes += b''.join(x.to_bytes() for x in reversed(self.items))
+        items_rev = list(reversed(self.items))
+        for i in range(len(items_rev)):
+            item_bytes = items_rev[i].to_bytes()
+            page_bytes += item_bytes
+            # pad the item with null bytes at the end to match
+            # the 8 byte data allignment scheme          
+            page_bytes += bytes((math.ceil(len(item_bytes) / 8) * 8) - len(item_bytes)) 
+            
+        # pad anything that's left with null bytes to match page length
+        page_bytes += bytes(self.header.length - len(page_bytes))
         
         return page_bytes
         
@@ -274,13 +289,9 @@ class Filenode:
             if old_data_len < len(item_data):
                 raise NotImplementedError
             
+            len_diff = len(item_data) - old_data_len
             # set new item length in corresponding ItemId object
-            self.pages[page_id].item_ids[item_id].lp_len = len(item_data)
-            
-            # pad the new item data with zeroes to match the old data length
-            # in order to avoid breaking the offsets and item allignment
-            item_data += bytes(old_data_len - len(item_data))
-            
+            self.pages[page_id].item_ids[item_id].lp_len += len_diff
             # set new data in the item object
             self.pages[page_id].items[item_id].data = item_data
         except IndexError:
@@ -288,30 +299,30 @@ class Filenode:
         except NotImplementedError:
             print('[-] Setting item data with length greater than the old one is not implemented yet')
 
-
-
+    def save_to_path(self, new_filenode_path):
+        filenode_bytes = b''.join(x.to_bytes() for x in self.pages)
+        
+        with open(new_filenode_path, 'wb') as f:
+            f.write(filenode_bytes)
 
 
 if __name__ == '__main__':
     args = parser.parse_args()
     filenode = Filenode(args.filenode_path)
     
-    filenode.pages[0].to_bytes()
-    
     if args.mode == 'list':
         if args.page:
             filenode.list_page(args.page)
         else:
             filenode.list_pages()
-        
     if args.mode == 'read':
         if args.page and args.item:
             filenode.get_item(args.page, args.item)
         else:
-            print('[-] please provide page and item indexes via --page and --item arguments')
-        
+            print('[-] please provide page and item indexes via --page and --item arguments')    
     if args.mode == 'update':
         if args.page and args.item and args.b64_data:
             filenode.update_item(args.page, args.item, args.b64_data)
+            filenode.save_to_path(args.filenode_path.with_suffix('.new'))
         else:
             print('[-] please provide page, item indexes, and new item data via the --page, --item, and --b64-data arguments')
