@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["-f", "./16412"],
+            "args": ["-f", "./16412", "-m", "list"],
             "justMyCode": true
         }
     ]

@@ -58,7 +58,8 @@ class PageHeaderData:
         header_bytes = b''
         
         header_bytes += struct.pack('<Q', self.pd_lsn)
-        header_bytes += struct.pack('<H', self.checksum)
+        # zero out checksum, just to be super safe with editing data
+        header_bytes += struct.pack('<H', 0)
         # pack pd_flags into 32 bit integer via bitwise or
         header_bytes += struct.pack('<H', functools.reduce(lambda x, y: x.value | y.value, self.pd_flags))  
         header_bytes += struct.pack('<H', self.pd_lower)
@@ -150,54 +151,114 @@ class HeapTupleHeaderData:
         return heap_tuple_header_bytes
 
 class Item:
-    def __init__(self, offset, length, filenode):
-        self.header = HeapTupleHeaderData(filenode[offset:offset+HeapTupleHeaderData._FIELD_SIZE])
-        self.data = filenode[offset+self.header.t_hoff:offset+length]
+    def __init__(self, offset, length, filenode_bytes):
+        self.header = HeapTupleHeaderData(filenode_bytes[offset:offset+HeapTupleHeaderData._FIELD_SIZE])
+        self.data = filenode_bytes[offset+self.header.t_hoff:offset+length]
 
 
 class Page:
-    def __init__(self, offset, filenode):
+    def __init__(self, offset, filenode_bytes):
         self.offset = offset
         # parse page header
-        self.header = PageHeaderData(filenode[offset:offset+PageHeaderData._FIELD_SIZE])
+        self.header = PageHeaderData(filenode_bytes[offset:offset+PageHeaderData._FIELD_SIZE])
         # parse page entries
         # pointers to page entries are stored in the ItemIdData
         # objects between the header and the pd_lower offsets
         # each 4 bytes represent a separate ItemIdData object
-        items_id_data = filenode[offset+PageHeaderData._FIELD_SIZE:offset + self.header.pd_lower]
+        items_id_data = filenode_bytes[offset+PageHeaderData._FIELD_SIZE:offset + self.header.pd_lower]
         self.item_ids = [ItemIdData(items_id_data[i:i+4]) for i in range (0, len(items_id_data), 4)]
         # iterate over item ids, populate actual items (i.e. rows) in the page
         # item_id.lp_off will point to the HeapTupleHeaderData object of the actual item
         # we will need to parse this object to obtain information about the item and 
         # an offset to the actual data
         # read HeapTupleHeaderData object
-        self.items = [Item(offset+x.lp_off, x.lp_len, filenode) for x in self.item_ids]
+        self.items = [Item(offset+x.lp_off, x.lp_len, filenode_bytes) for x in self.item_ids]
         
         
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--filenode-path', required=True, type=FilenodePath, help='Path to the target PostgreSQL filenode')
+parser.add_argument('-m', '--mode', choices=['list', 'read'], help='List items in the target filenode')
 
-def parse_filenode(filenode_path):
-    with open(filenode_path, 'rb') as f:
-        filenode = f.read()
-    
-    pages = list()
-    page_offset = 0
-    while page_offset < len(filenode):
-        # parse header bytes of new page
-        page = Page(page_offset, filenode)
-        pages.append(page)
-        page_offset += page.header.length
+parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
+parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
 
-    for i in range(len(pages)):
-        print(f'[*] Page {i}:')
-        for j in range(len(pages[i].items)):
-            print(f' - Entry {j}: ')
-            print(f'   {pages[i].items[j].data}')
-   
-    
+
+class Filenode:
+    def __init__(self, filenode_path):
+        with open(filenode_path, 'rb') as f:
+            filenode_bytes = f.read()
+        
+        self.pages = list()
+        page_offset = 0
+        while page_offset < len(filenode_bytes):
+            # parse header bytes of new page
+            page = Page(page_offset, filenode_bytes)
+            self.pages.append(page)
+            page_offset += page.header.length
+
+    def list_pages(self):
+        for i in range(len(self.pages)):
+            print(f'[!] Page {i}:')
+            for j in range(len(self.pages[i].items)):
+                print(f'[*] Item {j}, length {self.pages[i].item_ids[j].lp_len}:')
+                print(f'   {self.pages[i].items[j].data}')
+
+    def list_page(self, page_id):
+        try:
+            print(f'[!] Page {page_id}:')
+            for j in range(len(self.pages[page_id].items)):
+                print(f'[*] Item {j}, length {self.pages[page_id].item_ids[j].lp_len}:')
+                print(f'   {self.pages[page_id].items[j].data}')
+        except IndexError:
+            print('[-] Non existing page index provided')
+
+    def get_item(self, page_id, item_id):
+        try:
+            print(f'[!] Page {page_id}:')
+            print(f'[*] Item {item_id}, length {self.pages[page_id].item_ids[item_id].lp_len}:')
+            print(f'   {self.pages[page_id].items[item_id].data}')
+        except IndexError:
+            print('[-] Non existing page or item indexes provided')
+
+    def update_item(self, page_id, item_id, item_data):
+        try:
+            old_data_len = len(self.pages[page_id].items[item_id].data)
+            if old_data_len < len(item_data):
+                raise NotImplementedError
+            
+            # set new item length in corresponding ItemId object
+            self.pages[page_id].item_ids[item_id].lp_len = len(item_data)
+            
+            # pad the new item data with zeroes to match the old data length
+            # in order to avoid breaking the offsets and item allignment
+            item_data += bytes(old_data_len - len(item_data))
+            
+            # set new data in the item object
+            self.pages[page_id].items[item_id].data = item_data
+        except IndexError:
+            print('[-] Non existing page or item indexes provided')
+        except NotImplementedError:
+            print('[-] Setting item data with length greater than the old one is not implemented yet')
+
+
+
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    parse_filenode(args.filenode_path)
+    filenode = Filenode(args.filenode_path)
+    
+    if args.mode == 'list':
+        if args.page:
+            filenode.list_page(args.page)
+        else:
+            filenode.list_pages()
+        
+    if args.mode == 'read':
+        if args.page and args.item:
+            filenode.get_item(args.page, args.item)
+        else:
+            print('[-] please provide page and item indexes via --page and --item arguments')
+        
+            
