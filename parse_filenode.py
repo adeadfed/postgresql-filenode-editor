@@ -238,7 +238,7 @@ class Page:
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--filenode-path', required=True, type=Path, help='Path to the target PostgreSQL filenode')
-parser.add_argument('-m', '--mode', choices=['list', 'read', 'update'], help='List items in the target filenode')
+parser.add_argument('-m', '--mode', choices=['list', 'read', 'update'], required=True, help='List items in the target filenode')
 
 parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
 parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
