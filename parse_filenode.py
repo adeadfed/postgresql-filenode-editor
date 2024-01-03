@@ -140,28 +140,91 @@ class ItemPointerData:
         return item_pointer_bytes
 
 
+class HeapT_InfomaskFlags(Enum):
+    # https://github.com/postgres/postgres/blob/d4e66a39eb96ca514e3f49c85cf0b4b6f138854e/src/include/access/htup_details.h#L188
+    HEAP_HASNULL = 0x1
+    HEAP_HASVARWIDTH = 0x2
+    HEAP_HASEXTERNAL = 0x4
+    HEAP_HASOID_OLD = 0x8
+    HEAP_XMAX_KEYSHR_LOCK = 0x10
+    HEAP_COMBOCID = 0x20
+    HEAP_XMAX_EXCL_LOCK = 0x40
+    HEAP_XMAX_LOCK_ONLY = 0x80
+    HEAP_XMIN_COMMITTED = 0x100
+    HEAP_XMIN_INVALID = 0x200
+    HEAP_XMAX_COMMITTED = 0x400
+    HEAP_XMAX_INVALID = 0x800
+    HEAP_XMAX_IS_MULTI = 0x1000
+    HEAP_UPDATED = 0x2000
+    HEAP_MOVED_OFF = 0x4000
+    HEAP_MOVED_IN = 0x8000
+    
+class HeapT_Infomask2Flags(Enum):
+    HEAP_KEYS_UPDATED = 0x2000
+    HEAP_HOT_UPDATED = 0x4000
+    HEAP_ONLY_TUPLE = 0x8000
+    
+class T_Infomask:
+    HEAP_XACT_MASK = 0xFFF0
+    HEAP_LOCK_MASK = (HeapT_InfomaskFlags.HEAP_XMAX_EXCL_LOCK.value | HeapT_InfomaskFlags.HEAP_XMAX_EXCL_LOCK.value)
+    
+    def __init__(self, t_infomask_bytes):
+        _t_infomask = struct.unpack('<H', t_infomask_bytes)[0]
+        self.flags = [x for x in HeapT_InfomaskFlags if x.value & _t_infomask]
+        
+    def to_bytes(self):
+        if self.flags:
+            return struct.pack('<H', functools.reduce(
+                lambda x, y: x | y, 
+                    [x.value for x in self.flags]
+                )
+            )
+        return struct.pack('<H', 0)
+    
+class T_Infomask2:
+    HEAP_NATTS_MASK = 0x07FF
+    HEAP2_XACT_MASK = 0xE000
+    
+    def __init__(self, t_infomask2_bytes):
+        _t_infomask_2 = struct.unpack('<H', t_infomask2_bytes)[0]
+        self.flags = [x for x in HeapT_Infomask2Flags if x.value & _t_infomask_2]
+        # get number of attributes in the item
+        self.natts = _t_infomask_2 & self.HEAP_NATTS_MASK
+
+    def to_bytes(self):
+        if self.flags:
+            return struct.pack('<H', functools.reduce(
+                lambda x, y: x | y, 
+                    [x.value for x in self.flags]
+                )
+            )
+        return struct.pack('<H', 0)
+
+
 class HeapTupleHeaderData:
     _FIELD_SIZE = 23
 
-    def __init__(self, heap_tuple_header_bytes):
+    def __init__(self, offset, filenode_bytes):
         # I do not account for DatumTupleFields here
         # https://github.com/postgres/postgres/blob/9d49837d7144e27ad8ea8918acb28f9872cb1585/src/include/access/htup_details.h#L134
-        self.t_xmin = struct.unpack('<I', heap_tuple_header_bytes[:4])[0]
-        self.t_xmax = struct.unpack('<I', heap_tuple_header_bytes[4:8])[0]
+        self.t_xmin = struct.unpack('<I', filenode_bytes[offset:offset+4])[0]
+        self.t_xmax = struct.unpack('<I', filenode_bytes[offset+4:offset+8])[0]
         
         # fields can overlap
         # https://github.com/postgres/postgres/blob/9d49837d7144e27ad8ea8918acb28f9872cb1585/src/include/access/htup_details.h#L122
-        self.t_cid = struct.unpack('<I', heap_tuple_header_bytes[8:12])[0]
+        self.t_cid = struct.unpack('<I', filenode_bytes[offset+8:offset+12])[0]
         self.t_xvac = self.t_cid
 
-        self.t_ctid = ItemPointerData(heap_tuple_header_bytes[12:18])
+        self.t_ctid = ItemPointerData(filenode_bytes[offset+12:offset+18])
 
-        self.t_infomask2 = struct.unpack('<H', heap_tuple_header_bytes[18:20])[0]
-        self.t_infomask = struct.unpack('<H', heap_tuple_header_bytes[20:22])[0]
-        self.t_hoff = struct.unpack('B', heap_tuple_header_bytes[22:23])[0]
-
-        # get number of columns in a row
-        self.column_count = self.t_infomask2 & 0x07FF
+        self.t_infomask2 = T_Infomask2(filenode_bytes[offset+18:offset+20])
+        self.t_infomask = T_Infomask(filenode_bytes[offset+20:offset+22])
+        self.t_hoff = struct.unpack('B', filenode_bytes[offset+22:offset+23])[0]
+        # if there is a null map, try to read it now
+        if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
+            # null map has the bit size of the attribute number alligned to bytes
+            self.nullmap_byte_size = math.ceil(self.t_infomask2.natts / 8)
+            self.nullmap = int.from_bytes(filenode_bytes[offset+23:offset+23+self.nullmap_byte_size], byteorder='little')
 
     def to_bytes(self):
         heap_tuple_header_bytes = b''
@@ -169,17 +232,20 @@ class HeapTupleHeaderData:
         heap_tuple_header_bytes += struct.pack('<I', self.t_xmax)
         heap_tuple_header_bytes += struct.pack('<I', self.t_cid)
         heap_tuple_header_bytes += self.t_ctid.to_bytes()
-        heap_tuple_header_bytes += struct.pack('<H', self.t_infomask2)
-        heap_tuple_header_bytes += struct.pack('<H', self.t_infomask)
-        # intentionally write a null byte after the t_hoff for now
-        # there should be a null bitmap after the t_hoff
-        heap_tuple_header_bytes += struct.pack('<H', self.t_hoff)
+        heap_tuple_header_bytes += self.t_infomask2.to_bytes()
+        heap_tuple_header_bytes += self.t_infomask.to_bytes()
+        heap_tuple_header_bytes += struct.pack('B', self.t_hoff)
         
+        if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
+            heap_tuple_header_bytes += self.nullmap.to_bytes(self.nullmap_byte_size, byteorder='little')
+        else:
+            heap_tuple_header_bytes += b'\x00'
+
         return heap_tuple_header_bytes
 
 class Item:
     def __init__(self, offset, length, filenode_bytes):
-        self.header = HeapTupleHeaderData(filenode_bytes[offset:offset+HeapTupleHeaderData._FIELD_SIZE])
+        self.header = HeapTupleHeaderData(offset, filenode_bytes)
         self.data = filenode_bytes[offset+self.header.t_hoff:offset+length]
 
     def to_bytes(self):
@@ -310,7 +376,6 @@ class Filenode:
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    print(args)
     filenode = Filenode(args.filenode_path)
     
     if args.mode == 'list':
