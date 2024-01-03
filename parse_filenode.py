@@ -5,6 +5,7 @@ import pathlib
 import struct
 import base64
 import math
+import copy
 import functools
 from enum import Enum
 
@@ -220,6 +221,10 @@ class HeapTupleHeaderData:
         self.t_infomask2 = T_Infomask2(filenode_bytes[offset+18:offset+20])
         self.t_infomask = T_Infomask(filenode_bytes[offset+20:offset+22])
         self.t_hoff = struct.unpack('B', filenode_bytes[offset+22:offset+23])[0]
+        
+        self.nullmap_byte_size = 1
+        self.nullmap = 0
+        # SOMETHING IS WRONG WITH NULL MAP!!!
         # if there is a null map, try to read it now
         if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
             # null map has the bit size of the attribute number alligned to bytes
@@ -351,22 +356,83 @@ class Filenode:
         except IndexError:
             print('[-] Non existing page or item indexes provided')
 
-    def update_item(self, page_id, item_id, item_data):
+    def update_item(self, page_id, item_id, new_item_data):
         try:
-            old_data_len = len(self.pages[page_id].items[item_id].data)
-            if old_data_len < len(item_data):
-                raise NotImplementedError
+            # if we update the item with new data that is shorter than
+            # the original entry, we can just edit the original data
             
-            len_diff = len(item_data) - old_data_len
-            # set new item length in corresponding ItemId object
-            self.pages[page_id].item_ids[item_id].lp_len += len_diff
-            # set new data in the item object
-            self.pages[page_id].items[item_id].data = item_data
+            # if not, we will need to create a new item in the page,
+            # indicating the updated row
+            
+            # if there is no room for the new item in the page, we'd need
+            # to either place the new item in the last page, or create a new one
+            if len(new_item_data) > len(self.pages[page_id].items[item_id].data):
+                self._update_item_new_item(page_id, item_id, new_item_data)
+            else:    
+                self._update_item_inline(page_id, item_id, new_item_data)
+            
         except IndexError:
             print('[-] Non existing page or item indexes provided')
         except NotImplementedError:
             print('[-] Setting item data with length greater than the old one is not implemented yet')
 
+    def _update_item_new_item(self, page_id, item_id, new_item_data):
+        target_item = self.pages[page_id].items[item_id]
+        # make deep copies of the target Item and ItemId objects
+        new_item = copy.deepcopy(target_item)
+        new_item_id = copy.deepcopy(self.pages[page_id].item_ids[item_id])
+        
+        # set new item length in corresponding ItemId object
+        len_diff = len(new_item_data) - len(target_item.data)
+        new_item_id.lp_len += len_diff
+        # set new data in the item object
+        new_item.data = new_item_data
+        
+        # set corresponding flags in infomask to indicate that the new item 
+        # is the updated version of the target item
+        new_item.header.t_infomask.flags = list(set(new_item.header.t_infomask.flags + [HeapT_InfomaskFlags.HEAP_XMAX_INVALID, HeapT_InfomaskFlags.HEAP_UPDATED]))
+        
+        # set the corresponding flags in infomask to indicate that the old
+        # item has been updated with the new one
+        target_item.header.t_infomask.flags = list(set(target_item.header.t_infomask2.flags) - {HeapT_InfomaskFlags.HEAP_UPDATED, HeapT_InfomaskFlags.HEAP_XMAX_INVALID})
+        target_item.header.t_infomask2.flags = list(set(target_item.header.t_infomask2.flags + [HeapT_Infomask2Flags.HEAP_HOT_UPDATED]))
+        
+        # set xmin and xmax in the old item to be 1 less than the current one to
+        # hopefully mark it as "stale"
+        new_item.header.t_xmax = new_item.header.t_xmin + 1
+        
+        # we have fully prepared to insert the new item into the page
+        # we must now calculate the length of the new item, check if
+        # there is enough page for the insertion, and compute all necessary
+        # offsets
+        new_item_byte_length = math.ceil(len(new_item.to_bytes())/ 8) * 8
+        if (self.pages[page_id].header.pd_upper - self.pages[page_id].header.pd_lower) < new_item_byte_length:
+            # create new page with item in it
+            self._update_item_new_page(self, new_item)
+        else:
+            # calculate the alligned byte length of the new item
+            new_item_id.lp_len = new_item_byte_length
+            new_item_id.lp_off = math.floor((self.pages[page_id].header.pd_upper - new_item_byte_length)/ 8)  * 8
+            # append new data to the list
+            self.pages[page_id].item_ids.append(new_item_id)
+            self.pages[page_id].items.append(new_item)
+            # adjust empty space offsets in page header
+            # shift pd_lower up 4 bytes due to the new ItemId object being added
+            # shift pd_uppder down by the length of the new item
+            self.pages[page_id].header.pd_lower += 4
+            self.pages[page_id].header.pd_upper -= new_item_byte_length
+
+    def _update_item_new_page(self, new_item):
+        return
+
+    
+
+    def _update_item_inline(self, page_id, item_id, new_item_data):
+        # set new item length in corresponding ItemId object
+        self.pages[page_id].item_ids[item_id].lp_len = len(new_item_data) + HeapTupleHeaderData._FIELD_SIZE + self.pages[page_id].items[item_id].header.nullmap_byte_size
+        # set new data in the item object
+        self.pages[page_id].items[item_id].data = new_item_data
+    
     def save_to_path(self, new_filenode_path):
         filenode_bytes = b''.join(x.to_bytes() for x in self.pages)
         
