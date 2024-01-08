@@ -297,10 +297,10 @@ class Page:
 
 
 class TypAlign(Enum):
-    CHAR = 'B'
-    SHORT = 'H'
-    INT = 'I'
-    DOUBLE = 'Q'
+    CHAR = 'b'
+    SHORT = 'h'
+    INT = 'i'
+    DOUBLE = 'q'
 
 class DataType:
     _INTERNAL_ATTRS = ('tableoid', 'ctid', 'xmin', 'xmax', 'cmin', 'cmax')
@@ -325,6 +325,38 @@ class DataType:
                     'alignment': self._ALIGNMENT_MAPPING[_alignment]
                 })
 
+
+class Varlena:
+    _VA_HEADER_SIZE = 0
+    va_header = 0
+
+    def __init__(self):
+        pass
+
+    def _get_size(self):
+        raise NotImplementedError
+
+
+class Varlena_1B(Varlena):
+    _VA_HEADER_SIZE = 1
+
+    def __init__(self, varlena_bytes):
+        self.va_header = struct.unpack('B', varlena_bytes[:1])[0]
+        self.value = varlena_bytes[1:self._get_size()]
+
+    def _get_size(self):
+        return (self.va_header >> 1) & 0x7F
+
+class Varlena_4B(Varlena):
+    _VA_HEADER_SIZE = 4
+
+    def __init__(self, varlena_bytes):  
+        self.va_header = struct.unpack('<I', varlena_bytes[:4])[0]
+        self.value = varlena_bytes[4:self._get_size()]
+
+    def _get_size(self):
+        return (self.va_header >> 2) & 0x3FFFFFFF
+    
 
 def Path(path):
     path = pathlib.Path(path)
@@ -413,37 +445,66 @@ class Filenode:
 
     def _unserialize_data(self, data):
         unserialized_data = list()
+        offset = 0
 
-        for field_def in self.datatype.field_defs:
+        for i in range(len(self.datatype.field_defs)):
             # handle fixed length fields
-            if field_def['length']:
-                length = field_def['length']
-                value = struct.unpack(f'<{field_def["alignment"].value}', data[:length])[0]
+            if self.datatype.field_defs[i]['length'] > 0:
+                length = self.datatype.field_defs[i]['length']
+                value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', data[offset:offset+length])[0]
             
             # handle varlena fields, e.g. text, varchar
-            if field_def['length'] == -1:
+            if self.datatype.field_defs[i]['length'] == -1:
                 # varlena struct has a length field at the start
                 # it can either be 1 or 4 bytes
 
-                # https://doxygen.postgresql.org/varlena_8c_source.html
-                # line 198
+                # information about the varlena structure is stored in
+                # the first byte
 
-                # https://doxygen.postgresql.org/varatt_8h_source.html
-                # line 188
+                # see 
+                # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
 
-                # https://doxygen.postgresql.org/varatt_8h_source.html
-                # line 32
-                return
+                va_header = data[offset]
+                # determine type of varlen header
+                if va_header == 0x01:
+                    # VARATT_IS_1B_E
+                    raise NotImplementedError('Parsing of external varlena structures is not implemented')
+                elif (va_header & 0x01) == 0x01:
+                    # VARATT_IS_1B
+                    varlena_field = Varlena_1B(data[offset:])
+                    value = varlena_field.value
+                    length = varlena_field._get_size()
+
+                    # Varlena_1B is not padded
+                    # if we encounter a Varlena_1B column, and the next
+                    # column is not a Varlena_1B, we would need to pad
+                    # the data to match the 2 byte alignment
+                    if i < len(self.datatype.field_defs):
+                        if self.datatype.field_defs[i+1]['length'] != -1:
+                            length += math.ceil((offset+length)/4)*4 - (offset+length)
+
+
+                elif (va_header & 0x03) == 0x02:
+                    # VARATT_IS_4B_C
+                    raise NotImplementedError('Parsing of compressed varlena structures is not implemented')
+                elif (va_header & 0x03) == 0x00:
+                    # VARATT_IS_4B_U
+                    varlena_field = Varlena_4B(data[offset:])
+                    value = varlena_field.value
+                    length = varlena_field._get_size()
+
+                else:
+                    raise ValueError('Invalid value for Varlena header')
             
             # append the unserialized field to the output
             unserialized_data.append({
-                'name': field_def['name'],
-                'type': field_def['type'],
+                'name': self.datatype.field_defs[i]['name'],
+                'type': self.datatype.field_defs[i]['type'],
                 'value': value
             })
 
             # move past the field we've just read
-            data = data[length:]
+            offset += length
         
         return unserialized_data
     
