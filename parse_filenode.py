@@ -181,12 +181,12 @@ class T_Infomask2:
 
     def to_bytes(self):
         if self.flags:
-            return struct.pack('<H', functools.reduce(
+            return struct.pack('<H', self.natts | functools.reduce(
                 lambda x, y: x | y, 
                     [x.value for x in self.flags]
                 )
             )
-        return struct.pack('<H', 0)
+        return struct.pack('<H', self.natts | 0)
 
 
 class HeapTupleHeaderData:
@@ -211,7 +211,7 @@ class HeapTupleHeaderData:
         
         self.nullmap_byte_size = 1
         self.nullmap = 0
-        # SOMETHING IS WRONG WITH NULL MAP!!!
+
         # if there is a null map, try to read it now
         if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
             # null map has the bit size of the attribute number alligned to bytes
