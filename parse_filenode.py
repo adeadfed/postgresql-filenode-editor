@@ -580,7 +580,11 @@ class Filenode:
         
         # set xmin and xmax in the old item to be 1 less than the current one to
         # hopefully mark it as "stale"
-        new_item.header.t_xmax = new_item.header.t_xmin + 1
+        target_item.header.t_xmax = target_item.header.t_xmin
+        target_item.header.t_xmin -= 1
+
+        new_item.header.t_xmin = target_item.header.t_xmax
+        new_item.header.t_xmax = 0
         
         # we have fully prepared to insert the new item into the page
         # we must now calculate the length of the new item, check if
