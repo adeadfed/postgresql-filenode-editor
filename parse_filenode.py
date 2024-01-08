@@ -468,12 +468,15 @@ class Filenode:
         for i in range(len(self.datatype.field_defs)):
             # handle fixed length fields
             if self.datatype.field_defs[i]['length'] > 0:
+                value = b''
                 length = self.datatype.field_defs[i]['length']
+                
                 if data[offset:offset+length]:
                     if self.datatype.field_defs[i]['type'] in PARSEABLE_TYPES:
                         value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', data[offset:offset+length])[0]
-                else:
-                    value = data[offset:offset+length]
+                    else:
+                        value = data[offset:offset+length]
+                    
             
             # handle varlena fields, e.g. text, varchar
             if self.datatype.field_defs[i]['length'] == -1:
