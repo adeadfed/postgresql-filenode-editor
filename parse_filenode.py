@@ -6,22 +6,9 @@ import struct
 import base64
 import math
 import copy
+import csv
 import functools
 from enum import Enum
-
-def Path(path):
-    path = pathlib.Path(path)
-    if not path.exists():
-        raise argparse.ArgumentTypeError('Supplied filenode path does not exist')
-    if not path.is_file():
-        raise argparse.ArgumentTypeError('Supplied filenode path is not a file')
-    return path
-
-def Base64Data(b64_data):
-    try:
-        return base64.b64decode(b64_data)
-    except:
-        raise argparse.ArgumentTypeError('Invalid base64 data supplied')
 
 
 class LpFlags(Enum):
@@ -306,8 +293,59 @@ class Page:
         # pad anything that's left with null bytes to match page length
         page_bytes += bytes(self.header.length - len(page_bytes))
         
-        return page_bytes
-        
+        return page_bytes    
+
+
+class TypAlign(Enum):
+    CHAR = 'B'
+    SHORT = 'H'
+    INT = 'I'
+    DOUBLE = 'Q'
+
+class DataType:
+    _INTERNAL_ATTRS = ('tableoid', 'ctid', 'xmin', 'xmax', 'cmin', 'cmax')
+
+    _ALIGNMENT_MAPPING = {
+        'c': TypAlign.CHAR,
+        's': TypAlign.SHORT,
+        'i': TypAlign.INT,
+        'd': TypAlign.DOUBLE
+    }
+
+    def __init__(self, csv_str):
+        self.field_defs = list()
+
+        for field_def in csv.reader(csv_str.split(';')):
+            name, _type, _length, _alignment = field_def
+            if name not in self._INTERNAL_ATTRS:
+                self.field_defs.append({
+                    'name': name,
+                    'type': _type,
+                    'length': int(_length),
+                    'alignment': self._ALIGNMENT_MAPPING[_alignment]
+                })
+
+
+def Path(path):
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise argparse.ArgumentTypeError('Supplied filenode path does not exist')
+    if not path.is_file():
+        raise argparse.ArgumentTypeError('Supplied filenode path is not a file')
+    return path
+
+def Base64Data(b64_data):
+    try:
+        return base64.b64decode(b64_data)
+    except:
+        raise argparse.ArgumentTypeError('Invalid base64 data supplied')
+
+def DataTypeCsv(dtype_csv):
+    try:
+        return DataType(dtype_csv)
+    except:
+        raise argparse.ArgumentTypeError('Invalid datatype CSV supplied')
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--filenode-path', required=True, type=Path, help='Path to the target PostgreSQL filenode')
@@ -316,11 +354,15 @@ parser.add_argument('-m', '--mode', choices=['list', 'read', 'update'], required
 parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
 parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
 
-parser.add_argument('-d', '--b64-data', type=Base64Data, help='New item data to set; encoded in Base64')
+parser.add_argument('-b', '--b64-data', type=Base64Data, help='New item data to set; encoded in Base64')
+parser.add_argument('-d', '--datatype-csv', type=DataTypeCsv, help='Datatype CSV extracted from the PostgreSQL server')
 
 
 class Filenode:
-    def __init__(self, filenode_path):
+    def __init__(self, filenode_path, datatype=None):
+        if datatype is not None:
+            self.datatype = datatype
+
         with open(filenode_path, 'rb') as f:
             filenode_bytes = f.read()
         
@@ -336,25 +378,77 @@ class Filenode:
         for i in range(len(self.pages)):
             print(f'[!] Page {i}:')
             for j in range(len(self.pages[i].items)):
+                if self.datatype:
+                    data = self._unserialize_data(self.pages[i].items[j].data)
+                else:
+                    data = self.pages[i].items[j].data
                 print(f'[*] Item {j}, length {self.pages[i].item_ids[j].lp_len}:')
-                print(f'   {self.pages[i].items[j].data}')
+                print(f'   {data}')
 
     def list_page(self, page_id):
         try:
             print(f'[!] Page {page_id}:')
             for j in range(len(self.pages[page_id].items)):
+                if self.datatype:
+                    data = self._unserialize_data(self.pages[page_id].items[j].data)
+                else:
+                    data = self.pages[page_id].items[j].data
                 print(f'[*] Item {j}, length {self.pages[page_id].item_ids[j].lp_len}:')
-                print(f'   {self.pages[page_id].items[j].data}')
+                print(f'   {data}')
         except IndexError:
             print('[-] Non existing page index provided')
 
     def get_item(self, page_id, item_id):
         try:
+            if self.datatype:
+                data = self._unserialize_data(self.pages[page_id].items[item_id].data)
+            else:
+                data = self.pages[page_id].items[item_id].data
+
             print(f'[!] Page {page_id}:')
             print(f'[*] Item {item_id}, length {self.pages[page_id].item_ids[item_id].lp_len}:')
-            print(f'   {self.pages[page_id].items[item_id].data}')
+            print(f'   {data}')
         except IndexError:
             print('[-] Non existing page or item indexes provided')
+
+    def _unserialize_data(self, data):
+        unserialized_data = list()
+
+        for field_def in self.datatype.field_defs:
+            # handle fixed length fields
+            if field_def['length']:
+                length = field_def['length']
+                value = struct.unpack(f'<{field_def["alignment"].value}', data[:length])[0]
+            
+            # handle varlena fields, e.g. text, varchar
+            if field_def['length'] == -1:
+                # varlena struct has a length field at the start
+                # it can either be 1 or 4 bytes
+
+                # https://doxygen.postgresql.org/varlena_8c_source.html
+                # line 198
+
+                # https://doxygen.postgresql.org/varatt_8h_source.html
+                # line 188
+
+                # https://doxygen.postgresql.org/varatt_8h_source.html
+                # line 32
+                return
+            
+            # append the unserialized field to the output
+            unserialized_data.append({
+                'name': field_def['name'],
+                'type': field_def['type'],
+                'value': value
+            })
+
+            # move past the field we've just read
+            data = data[length:]
+        
+        return unserialized_data
+    
+    def _serialize_data(self, data):
+        raise NotImplementedError
 
     def update_item(self, page_id, item_id, new_item_data):
         try:
@@ -423,7 +517,7 @@ class Filenode:
             self.pages[page_id].header.pd_upper -= new_item_byte_length
 
     def _update_item_new_page(self, new_item):
-        return
+        raise NotImplementedError
 
     
 
@@ -442,10 +536,10 @@ class Filenode:
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    filenode = Filenode(args.filenode_path)
+    filenode = Filenode(args.filenode_path, args.datatype_csv)
     
     if args.mode == 'list':
-        if args.page:
+        if args.page is not None:
             filenode.list_page(args.page)
         else:
             filenode.list_pages()
