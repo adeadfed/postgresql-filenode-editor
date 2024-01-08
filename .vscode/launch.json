@@ -10,7 +10,8 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["-f", "./40996", "-m", "list", "--page", "0", "--datatype-csv", "tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;user_id,int4,4,i;birthday,date,4,i;username,varchar,-1,i;email,varchar,-1,i;password,varchar,-1,i;address,text,-1,i;role,int4,4,i;active,bool,1,c"],
+            // "args": ["-f", "./40996", "-m", "list", "--page", "0", "--datatype-csv", "tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;user_id,int4,4,i;birthday,date,4,i;username,varchar,-1,i;email,varchar,-1,i;password,varchar,-1,i;address,text,-1,i;role,int4,4,i;active,bool,1,c"],
+            "args": ["-f", "./1260", "-m", "list", "--page", "0", "--datatype-csv", "tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;oid,oid,4,i;rolname,name,64,c;rolsuper,bool,1,c;rolinherit,bool,1,c;rolcreaterole,bool,1,c;rolcreatedb,bool,1,c;rolcanlogin,bool,1,c;rolreplication,bool,1,c;rolbypassrls,bool,1,c;rolconnlimit,int4,4,i;rolpassword,text,-1,i;rolvaliduntil,timestamptz,8,d"],
             "justMyCode": true
         },
         {

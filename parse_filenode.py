@@ -390,6 +390,24 @@ parser.add_argument('-b', '--b64-data', type=Base64Data, help='New item data to 
 parser.add_argument('-d', '--datatype-csv', type=DataTypeCsv, help='Datatype CSV extracted from the PostgreSQL server')
 
 
+PARSEABLE_TYPES = [
+    'oid',
+    'int',
+    'int2',
+    'int4',
+    'int8',
+    'bool',
+    'timetz',
+    'timestamptz',
+    'time',
+    'timestamp',
+    'serial',
+    'serial2',
+    'serial4',
+    'serial8'
+]
+
+
 class Filenode:
     def __init__(self, filenode_path, datatype=None):
         if datatype is not None:
@@ -451,7 +469,11 @@ class Filenode:
             # handle fixed length fields
             if self.datatype.field_defs[i]['length'] > 0:
                 length = self.datatype.field_defs[i]['length']
-                value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', data[offset:offset+length])[0]
+                if data[offset:offset+length]:
+                    if self.datatype.field_defs[i]['type'] in PARSEABLE_TYPES:
+                        value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', data[offset:offset+length])[0]
+                else:
+                    value = data[offset:offset+length]
             
             # handle varlena fields, e.g. text, varchar
             if self.datatype.field_defs[i]['length'] == -1:
