@@ -463,6 +463,7 @@ class Filenode:
             print('[-] Non existing page or item indexes provided')
 
     def _unserialize_data(self, data):
+        #TODO: add nullmap parsing here
         unserialized_data = list()
         offset = 0
 
@@ -535,6 +536,7 @@ class Filenode:
         return unserialized_data
     
     def _serialize_data(self, data):
+        #TODO: implement this
         raise NotImplementedError
 
     def update_item(self, page_id, item_id, new_item_data):
@@ -608,6 +610,7 @@ class Filenode:
             self.pages[page_id].header.pd_upper -= new_item_byte_length
 
     def _update_item_new_page(self, new_item):
+        #TODO: implement this
         raise NotImplementedError
 
     
