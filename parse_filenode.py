@@ -397,6 +397,7 @@ PARSEABLE_TYPES = [
     'int4',
     'int8',
     'bool',
+    'date',
     'timetz',
     'timestamptz',
     'time',
