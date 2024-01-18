@@ -7,6 +7,7 @@ import base64
 import math
 import copy
 import csv
+from io import StringIO
 import functools
 from enum import Enum
 
@@ -235,6 +236,27 @@ class HeapTupleHeaderData:
 
         return heap_tuple_header_bytes
 
+
+PARSEABLE_TYPES = [
+    'oid',
+    'int',
+    'int2',
+    'int4',
+    'int8',
+    'bool',
+    'date',
+    'timetz',
+    'timestamptz',
+    'time',
+    'timestamp',
+    'serial',
+    'serial2',
+    'serial4',
+    'serial8'
+]
+
+
+
 class Item:
     def __init__(self, offset, length, filenode_bytes):
         self.header = HeapTupleHeaderData(offset, filenode_bytes)
@@ -372,6 +394,12 @@ def Base64Data(b64_data):
     except:
         raise argparse.ArgumentTypeError('Invalid base64 data supplied')
 
+def CsvData(csv_data):
+    try:
+        return list(csv.reader(StringIO(csv_data)))[0]
+    except:
+        raise argparse.ArgumentTypeError('Invalid CSV data supplied')
+
 def DataTypeCsv(dtype_csv):
     try:
         return DataType(dtype_csv)
@@ -381,38 +409,19 @@ def DataTypeCsv(dtype_csv):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--filenode-path', required=True, type=Path, help='Path to the target PostgreSQL filenode')
-parser.add_argument('-m', '--mode', choices=['list', 'read', 'update'], required=True, help='List items in the target filenode')
+parser.add_argument('-m', '--mode', choices=['list', 'read', 'update', 'raw_update'], required=True, help='List items in the target filenode')
 
 parser.add_argument('-p', '--page', type=int, help='Index of the page to read/write')
 parser.add_argument('-i', '--item', type=int, help='Index of the item to read/write')
 
-parser.add_argument('-b', '--b64-data', type=Base64Data, help='New item data to set; encoded in Base64')
+parser.add_argument('-b', '--b64-data', type=Base64Data, help='New item data to set; encoded in Base64; only available in raw_update mode')
+parser.add_argument('-c', '--csv-data', type=CsvData, help='New item data to set; encoded in CSV; only available in update mode')
 parser.add_argument('-d', '--datatype-csv', type=DataTypeCsv, help='Datatype CSV extracted from the PostgreSQL server')
-
-
-PARSEABLE_TYPES = [
-    'oid',
-    'int',
-    'int2',
-    'int4',
-    'int8',
-    'bool',
-    'date',
-    'timetz',
-    'timestamptz',
-    'time',
-    'timestamp',
-    'serial',
-    'serial2',
-    'serial4',
-    'serial8'
-]
 
 
 class Filenode:
     def __init__(self, filenode_path, datatype=None):
-        if datatype is not None:
-            self.datatype = datatype
+        self.datatype = datatype
 
         with open(filenode_path, 'rb') as f:
             filenode_bytes = f.read()
@@ -429,10 +438,8 @@ class Filenode:
         for i in range(len(self.pages)):
             print(f'[!] Page {i}:')
             for j in range(len(self.pages[i].items)):
-                if self.datatype:
-                    data = self._unserialize_data(self.pages[i].items[j].data)
-                else:
-                    data = self.pages[i].items[j].data
+                item = self.pages[i].items[j]
+                data = self._deserialize_data(item.data, item.header)
                 print(f'[*] Item {j}, length {self.pages[i].item_ids[j].lp_len}:')
                 print(f'   {data}')
 
@@ -440,10 +447,8 @@ class Filenode:
         try:
             print(f'[!] Page {page_id}:')
             for j in range(len(self.pages[page_id].items)):
-                if self.datatype:
-                    data = self._unserialize_data(self.pages[page_id].items[j].data)
-                else:
-                    data = self.pages[page_id].items[j].data
+                item = self.pages[page_id].items[j]
+                data = self._deserialize_data(item.data, item.header)
                 print(f'[*] Item {j}, length {self.pages[page_id].item_ids[j].lp_len}:')
                 print(f'   {data}')
         except IndexError:
@@ -451,96 +456,24 @@ class Filenode:
 
     def get_item(self, page_id, item_id):
         try:
-            if self.datatype:
-                data = self._unserialize_data(self.pages[page_id].items[item_id].data)
-            else:
-                data = self.pages[page_id].items[item_id].data
-
+            item = self.pages[page_id].items[item_id]
+            data = self._deserialize_data(item.data, item.header)
             print(f'[!] Page {page_id}:')
             print(f'[*] Item {item_id}, length {self.pages[page_id].item_ids[item_id].lp_len}:')
             print(f'   {data}')
         except IndexError:
             print('[-] Non existing page or item indexes provided')
 
-    def _unserialize_data(self, data):
-        #TODO: add nullmap parsing here
-        unserialized_data = list()
-        offset = 0
-
-        for i in range(len(self.datatype.field_defs)):
-            # handle fixed length fields
-            if self.datatype.field_defs[i]['length'] > 0:
-                value = b''
-                length = self.datatype.field_defs[i]['length']
-                
-                if data[offset:offset+length]:
-                    if self.datatype.field_defs[i]['type'] in PARSEABLE_TYPES:
-                        value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', data[offset:offset+length])[0]
-                    else:
-                        value = data[offset:offset+length]
-                    
-            
-            # handle varlena fields, e.g. text, varchar
-            if self.datatype.field_defs[i]['length'] == -1:
-                # varlena struct has a length field at the start
-                # it can either be 1 or 4 bytes
-
-                # information about the varlena structure is stored in
-                # the first byte
-
-                # see 
-                # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
-
-                va_header = data[offset]
-                # determine type of varlen header
-                if va_header == 0x01:
-                    # VARATT_IS_1B_E
-                    raise NotImplementedError('Parsing of external varlena structures is not implemented')
-                elif (va_header & 0x01) == 0x01:
-                    # VARATT_IS_1B
-                    varlena_field = Varlena_1B(data[offset:])
-                    value = varlena_field.value
-                    length = varlena_field._get_size()
-
-                    # Varlena_1B is not padded
-                    # if we encounter a Varlena_1B column, and the next
-                    # column is not a Varlena_1B, we would need to pad
-                    # the data to match the 2 byte alignment
-                    if i < len(self.datatype.field_defs):
-                        if self.datatype.field_defs[i+1]['length'] != -1:
-                            length += math.ceil((offset+length)/4)*4 - (offset+length)
-
-
-                elif (va_header & 0x03) == 0x02:
-                    # VARATT_IS_4B_C
-                    raise NotImplementedError('Parsing of compressed varlena structures is not implemented')
-                elif (va_header & 0x03) == 0x00:
-                    # VARATT_IS_4B_U
-                    varlena_field = Varlena_4B(data[offset:])
-                    value = varlena_field.value
-                    length = varlena_field._get_size()
-
-                else:
-                    raise ValueError('Invalid value for Varlena header')
-            
-            # append the unserialized field to the output
-            unserialized_data.append({
-                'name': self.datatype.field_defs[i]['name'],
-                'type': self.datatype.field_defs[i]['type'],
-                'value': value
-            })
-
-            # move past the field we've just read
-            offset += length
-        
-        return unserialized_data
-    
-    def _serialize_data(self, data):
-        #TODO: implement this
-        raise NotImplementedError
 
     def update_item(self, page_id, item_id, new_item_data):
         try:
+            # TODO: serialize / unserialize data would better work here as a separate method lol
+            item = self.pages[page_id].items[item_id]
+
+            if isinstance(new_item_data, list):
+                new_item_data, new_item_header = self._serialize_data(new_item_data, item.header)
+            else:
+                new_item_header, new_item_header = item.data, item.header
             # if we update the item with new data that is shorter than
             # the original entry, we can just edit the original data
             
@@ -549,17 +482,17 @@ class Filenode:
             
             # if there is no room for the new item in the page, we'd need
             # to either place the new item in the last page, or create a new one
-            if len(new_item_data) > len(self.pages[page_id].items[item_id].data):
-                self._update_item_new_item(page_id, item_id, new_item_data)
+            if len(new_item_data) > len(item.data):
+                self._update_item_new_item(item, new_item_data, new_item_header)
             else:    
-                self._update_item_inline(page_id, item_id, new_item_data)
+                self._update_item_inline(item, new_item_data, new_item_header)
             
         except IndexError:
             print('[-] Non existing page or item indexes provided')
         except NotImplementedError:
             print('[-] Setting item data with length greater than the old one is not implemented yet')
 
-    def _update_item_new_item(self, page_id, item_id, new_item_data):
+    def _update_item_new_item(self, page_id, item_id, new_item_data, new_item_header):
         target_item = self.pages[page_id].items[item_id]
         # make deep copies of the target Item and ItemId objects
         new_item = copy.deepcopy(target_item)
@@ -570,6 +503,8 @@ class Filenode:
         new_item_id.lp_len += len_diff
         # set new data in the item object
         new_item.data = new_item_data
+        # set new header in the item object
+        new_item.header = new_item_header
         
         # set corresponding flags in infomask to indicate that the new item 
         # is the updated version of the target item
@@ -612,15 +547,125 @@ class Filenode:
     def _update_item_new_page(self, new_item):
         #TODO: implement this
         raise NotImplementedError
-
     
-
-    def _update_item_inline(self, page_id, item_id, new_item_data):
+    def _update_item_inline(self, page_id, item_id, new_item_data, new_item_header):
         # set new item length in corresponding ItemId object
         self.pages[page_id].item_ids[item_id].lp_len = len(new_item_data) + HeapTupleHeaderData._FIELD_SIZE + self.pages[page_id].items[item_id].header.nullmap_byte_size
+        # set new header in the item object
+        self.pages[page_id].items[item_id].header = new_item_header
         # set new data in the item object
         self.pages[page_id].items[item_id].data = new_item_data
     
+    def _deserialize_data(self, item_data, item_header):
+        if self.datatype is None:
+            return item_data
+
+        try:
+            unserialized_data = list()
+            offset = 0
+
+            # copy of nullmap
+            _nullmap = item_header.nullmap
+
+            for i in range(item_header.t_infomask2.natts):
+                # check if row has null values
+                if HeapT_InfomaskFlags.HEAP_HASNULL in item_header.t_infomask.flags:
+                    field_present = _nullmap & 0x1
+                    _nullmap >>= 1
+                    # if the field is null
+                    if not field_present:
+                        unserialized_data.append({
+                            'name': self.datatype.field_defs[i]['name'],
+                            'type': self.datatype.field_defs[i]['type'],
+                            'value': b'',
+                            'is_null': True
+                        })
+                        continue
+
+                # handle fixed length fields
+                if self.datatype.field_defs[i]['length'] > 0:
+                    value = b''
+                    length = self.datatype.field_defs[i]['length']
+                    
+                    if item_data[offset:offset+length]:
+                        if self.datatype.field_defs[i]['type'] in PARSEABLE_TYPES:
+                            value = struct.unpack(f'<{self.datatype.field_defs[i]["alignment"].value}', item_data[offset:offset+length])[0]
+                        else:
+                            value = item_data[offset:offset+length]
+                
+                # handle varlena fields, e.g. text, varchar
+                if self.datatype.field_defs[i]['length'] == -1:
+                    # varlena struct has a length field at the start
+                    # it can either be 1 or 4 bytes
+
+                    # information about the varlena structure is stored in
+                    # the first byte
+
+                    # see 
+                    # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
+
+                    va_header = item_data[offset]
+                    # determine type of varlen header
+                    if va_header == 0x01:
+                        # VARATT_IS_1B_E
+                        raise NotImplementedError('Parsing of external varlena structures is not implemented')
+                    elif (va_header & 0x01) == 0x01:
+                        # VARATT_IS_1B
+                        varlena_field = Varlena_1B(item_data[offset:])
+                        value = varlena_field.value
+                        length = varlena_field._get_size()
+
+                        # Varlena_1B is not padded
+                        # if we encounter a Varlena_1B column, and the next
+                        # column is not a Varlena_1B, we would need to pad
+                        # the data to match the 2 byte alignment
+                        if i < item_header.t_infomask2.natts - 1:
+                            if self.datatype.field_defs[i+1]['length'] != -1:
+                                length += math.ceil((offset+length)/4)*4 - (offset+length)
+
+
+                    elif (va_header & 0x03) == 0x02:
+                        # VARATT_IS_4B_C
+                        raise NotImplementedError('Parsing of compressed varlena structures is not implemented')
+                    elif (va_header & 0x03) == 0x00:
+                        # VARATT_IS_4B_U
+                        varlena_field = Varlena_4B(item_data[offset:])
+                        value = varlena_field.value
+                        length = varlena_field._get_size()
+
+                    else:
+                        raise ValueError('Invalid value for Varlena header')
+                
+                # append the unserialized field to the output
+                unserialized_data.append({
+                    'name': self.datatype.field_defs[i]['name'],
+                    'type': self.datatype.field_defs[i]['type'],
+                    'value': value,
+                    'is_null': False
+                })
+
+                # move past the field we've just read
+                offset += length
+            return unserialized_data
+        except Exception as e:
+            print(f'The following exception has occured during deserialization: {e}')
+
+    def _serialize_data(self, item_data, item_header):
+        if self.datatype is None:
+            return item_data, item_header
+        #TODO: implement this!!!!!!!!
+        item_data = b''
+
+        for i in range(len(self.datatype.field_defs)):
+            field_def = self.datatype.field_defs[i]
+
+            if field_def.length > 0:
+                item_data += struct.pack(f'<{}', )
+            # varlena
+            else:
+
+
+
     def save_to_path(self, new_filenode_path):
         filenode_bytes = b''.join(x.to_bytes() for x in self.pages)
         
@@ -642,9 +687,15 @@ if __name__ == '__main__':
             filenode.get_item(args.page, args.item)
         else:
             print('[-] please provide page and item indexes via --page and --item arguments')    
-    if args.mode == 'update':
+    if args.mode == 'raw_update':
         if args.page is not None and args.item is not None and args.b64_data is not None:
             filenode.update_item(args.page, args.item, args.b64_data)
             filenode.save_to_path(args.filenode_path.with_suffix('.new'))
         else:
             print('[-] please provide page, item indexes, and new item data via the --page, --item, and --b64-data arguments')
+    if args.mode == 'update':
+        if args.page is not None and args.item is not None and args.csv_data is not None and args.datatype_csv is not None:
+            filenode.update_item(args.page, args.item, args.csv_data)
+            filenode.save_to_path(args.filenode_path.with_suffix('.new'))
+        else:
+            print('[-] please provide page, item indexes, and new item data via the --page, --item, --datatype-csv and --csv-data arguments')
