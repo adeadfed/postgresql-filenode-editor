@@ -350,35 +350,69 @@ class DataType:
 
 class Varlena:
     _VA_HEADER_SIZE = 0
-    va_header = 0
+    _VA_MAX_DATA_SIZE = 0
 
     def __init__(self):
         pass
 
     def _get_size(self):
         raise NotImplementedError
+    
+    def _set_size(self, new_size):
+        raise NotImplementedError
+    
+    def to_bytes(self):
+        raise NotImplementedError
 
-
+# TODO: can do better job with classes than this
 class Varlena_1B(Varlena):
     _VA_HEADER_SIZE = 1
+    _VA_MAX_DATA_SIZE = 126
 
-    def __init__(self, varlena_bytes):
-        self.va_header = struct.unpack('B', varlena_bytes[:1])[0]
-        self.value = varlena_bytes[1:self._get_size()]
+    def __init__(self, varlena_bytes=None):
+        if varlena_bytes:
+            self.va_header = struct.unpack('B', varlena_bytes[:1])[0]
+            self.value = varlena_bytes[1:self._get_size()]
+        else:
+            # Set va_header ID of Varlena_1B object
+            self.va_header = 0x1
+            self.value = b''
 
     def _get_size(self):
         return (self.va_header >> 1) & 0x7F
+    
+    def _set_size(self, new_size):
+        if new_size >= self._VA_MAX_DATA_SIZE:
+            raise ValueError(f'[-] Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
+        # account for the size of va_header by adding extra 1 byte
+        self.va_header |= ((new_size + 1) & 0x7F) << 1
+
+    def to_bytes(self):
+        return struct.pack('B', self.va_header) + self.value
 
 class Varlena_4B(Varlena):
     _VA_HEADER_SIZE = 4
 
-    def __init__(self, varlena_bytes):  
-        self.va_header = struct.unpack('<I', varlena_bytes[:4])[0]
-        self.value = varlena_bytes[4:self._get_size()]
+    def __init__(self, varlena_bytes=None):
+        if varlena_bytes:
+            self.va_header = struct.unpack('<I', varlena_bytes[:4])[0]
+            self.value = varlena_bytes[4:self._get_size()]
+        else:
+            # Set va_header ID of Varlena_4B_U object
+            self.va_header = 0x0
+            self.value = b''
 
     def _get_size(self):
         return (self.va_header >> 2) & 0x3FFFFFFF
     
+    def _set_size(self, new_size):
+        if new_size >= self._VA_MAX_DATA_SIZE:
+            raise ValueError(f'[-] Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
+        # account for the size of va_header by adding extra 4 bytes
+        self.va_header |= ((new_size + 4) & 0x3FFFFFFF) << 2
+
+    def to_bytes(self):
+        return struct.pack('<I', self.va_header) + self.value
 
 def Path(path):
     path = pathlib.Path(path)
@@ -467,13 +501,14 @@ class Filenode:
 
     def update_item(self, page_id, item_id, new_item_data):
         try:
-            # TODO: serialize / unserialize data would better work here as a separate method lol
             item = self.pages[page_id].items[item_id]
-
+            # check if we the user passed us CSV with datatype, or a raw Base64-encoded data
             if isinstance(new_item_data, list):
                 new_item_data, new_item_header = self._serialize_data(new_item_data, item.header)
             else:
-                new_item_header, new_item_header = item.data, item.header
+                new_item_data = base64.b64decode(new_item_data)
+                new_item_header = item.header
+            
             # if we update the item with new data that is shorter than
             # the original entry, we can just edit the original data
             
@@ -483,9 +518,9 @@ class Filenode:
             # if there is no room for the new item in the page, we'd need
             # to either place the new item in the last page, or create a new one
             if len(new_item_data) > len(item.data):
-                self._update_item_new_item(item, new_item_data, new_item_header)
+                self._update_item_new_item(page_id, item_id, new_item_data, new_item_header)
             else:    
-                self._update_item_inline(item, new_item_data, new_item_header)
+                self._update_item_inline(page_id, item_id, new_item_data, new_item_header)
             
         except IndexError:
             print('[-] Non existing page or item indexes provided')
@@ -604,6 +639,7 @@ class Filenode:
                     # see 
                     # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
 
+                    #TODO: i can do better job with parsing and initiating classes based on value
                     va_header = item_data[offset]
                     # determine type of varlen header
                     if va_header == 0x01:
@@ -615,10 +651,10 @@ class Filenode:
                         value = varlena_field.value
                         length = varlena_field._get_size()
 
-                        # Varlena_1B is not padded
-                        # if we encounter a Varlena_1B column, and the next
-                        # column is not a Varlena_1B, we would need to pad
-                        # the data to match the 2 byte alignment
+                        # Varlena is not padded
+                        # if we encounter a Varlena column, and the next
+                        # column is not a Varlena, we would need to pad
+                        # the data to match the 4 byte alignment
                         if i < item_header.t_infomask2.natts - 1:
                             if self.datatype.field_defs[i+1]['length'] != -1:
                                 length += math.ceil((offset+length)/4)*4 - (offset+length)
@@ -652,18 +688,71 @@ class Filenode:
 
     def _serialize_data(self, item_data, item_header):
         if self.datatype is None:
-            return item_data, item_header
-        #TODO: implement this!!!!!!!!
-        item_data = b''
+            raise Exception('[-] Serialization requires a valid datatype of the filenode')
+       
+        # if datatype is present, try to serialize the data into bytes
+        item_data_bytes = b''
+        _nullmap = 0
 
         for i in range(len(self.datatype.field_defs)):
             field_def = self.datatype.field_defs[i]
 
-            if field_def.length > 0:
-                item_data += struct.pack(f'<{}', )
-            # varlena
+            # if field is null, make sure to set HEAP_HASNULL flag in the header
+            # skip the processing
+            if item_data[i] == 'NULL':
+                item_header.t_infomask.flags = list(set(item_header.t_infomask.flags) + {HeapT_InfomaskFlags.HEAP_HASNULL})
+                _nullmap = (_nullmap | 0) << 1
+                continue
+            
+            # handle fixed length data fields
+            if field_def['length'] > 0:
+                # check if the field type is supported by the parser
+                if field_def['type'] in PARSEABLE_TYPES:
+                    item_data_bytes += struct.pack(f'<{field_def["alignment"].value}', int(item_data[i]))
+                # else we would need to set the raw byte value of the field
+                # from the user input
+                else:
+                    try:
+                        item_data_bytes += base64.b64decode(item_data[i])
+                    except:
+                        raise NotImplementedError(f'[-] Field {field_def["name"]} has a type {field_def["type"]} that cannot be serialized automatically. Please supply a Base64-encoded byte value in order to edit it.')
+                    
+            # handle varlena fields
             else:
+                # sanity check, we should be dealing with strings here
+                if not isinstance(item_data[i], str):
+                    raise ValueError(f'[-] Field {field_def["name"]} must be a string value!') 
+                # choose correct VarlenA object based on supplied data length
+                if len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
+                    varlena_field = Varlena_1B()    
+                elif len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
+                    varlena_field = Varlena_4B()
+                else:
+                    raise ValueError(f'[-] Supplied data length is greater than the maximum one of the supported VarlenA structures')
+                # set length and value of the varlena object
+                varlena_field._set_size(len(item_data[i]))
+                varlena_field.value = item_data[i].encode('utf-8')
+                # serialize varlena object to bytes
+                item_data_bytes += varlena_field.to_bytes()
 
+                # Varlena is not padded
+                # if we encounter a Varlena column, and the next
+                # column is not a Varlena, we would need to pad
+                # the data to match the 4 byte alignment
+                if i < item_header.t_infomask2.natts - 1:
+                    if self.datatype.field_defs[i+1]['length'] != -1:
+                        item_data_bytes += bytes(math.ceil(len(item_data_bytes)/4)*4 - len(item_data_bytes)) 
+            
+            # calculate temp nullmap value to set it later in case we encounter
+            # any null values
+            _nullmap = (_nullmap | 1) << 1
+
+        # if header has HEAP_HASNULL flag present, set nullmap that we calculated
+        # earlier
+        if HeapT_InfomaskFlags.HEAP_HASNULL in item_header.t_infomask.flags:
+            item_header.nullmap = _nullmap
+
+        return item_data_bytes, item_header
 
 
     def save_to_path(self, new_filenode_path):
