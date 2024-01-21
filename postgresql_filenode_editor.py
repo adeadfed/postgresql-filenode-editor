@@ -706,6 +706,7 @@ class Filenode:
 
     def _update_item_new_item(self, page_id, item_id, new_item_data, new_item_header):
         target_item = self.pages[page_id].items[item_id]
+        target_item_id = self.pages[page_id].item_ids[item_id]
         # make deep copies of the target Item and ItemId objects
         new_item = copy.deepcopy(target_item)
         new_item_id = copy.deepcopy(self.pages[page_id].item_ids[item_id])
@@ -728,6 +729,9 @@ class Filenode:
         # hopefully mark it as "stale"
         target_item.header.t_xmax = target_item.header.t_xmin
         target_item.header.t_xmin -= 1
+        # set lp_flags in associated ItemIdData object to LP_DEAD to
+        # hopefully mark original entry as "stale"
+        target_item_id.lp_flags = LpFlags.LP_DEAD
 
         new_item.header.t_xmin = target_item.header.t_xmax
         new_item.header.t_xmax = 0
