@@ -8,8 +8,7 @@ import math
 import copy
 import csv
 from io import StringIO
-import functools
-from enum import Enum
+from enum import Enum, IntFlag
 
 
 class LpFlags(Enum):
@@ -18,7 +17,7 @@ class LpFlags(Enum):
     LP_REDIRECT = 0x2
     LP_DEAD = 0x3
 
-class PdFlags(Enum):
+class PdFlags(IntFlag):
     PD_UNDEFINED = 0x0
     PD_HAS_FREE_LINES = 0x1
     PD_PAGE_FULL = 0x2
@@ -39,11 +38,9 @@ class PageHeaderData:
         self.pd_lsn = struct.unpack('<Q', header_bytes[:8])[0]
         self.checksum = struct.unpack('<H', header_bytes[8:10])[0]
     
-        _pd_flags = struct.unpack('<H', header_bytes[10:12])[0]
-        # parse pd_flags raw value into flags
-        self.pd_flags = [x for x in PdFlags if x.value & _pd_flags]
-        if not self.pd_flags:
-            self.pd_flags = [PdFlags.PD_UNDEFINED] 
+        self.pd_flags = PdFlags(
+            struct.unpack('<H', header_bytes[10:12])[0]
+        )
 
         self.pd_lower = struct.unpack('<H', header_bytes[12:14])[0]
         self.pd_upper = struct.unpack('<H', header_bytes[14:16])[0]
@@ -63,11 +60,7 @@ class PageHeaderData:
         # zero out checksum, just to be super safe with editing data
         header_bytes += struct.pack('<H', 0)
         # pack pd_flags into 32 bit integer via bitwise or
-        header_bytes += struct.pack('<H', functools.reduce(
-            lambda x, y: x | y, 
-                [x.value for x in self.pd_flags]
-            )
-        )  
+        header_bytes += struct.pack('<H', self.pd_flags.value)  
         header_bytes += struct.pack('<H', self.pd_lower)
         header_bytes += struct.pack('<H', self.pd_upper)
         header_bytes += struct.pack('<H', self.pd_special)
@@ -129,7 +122,7 @@ class ItemPointerData:
         return item_pointer_bytes
 
 
-class HeapT_InfomaskFlags(Enum):
+class HeapT_InfomaskFlags(IntFlag):
     # https://github.com/postgres/postgres/blob/d4e66a39eb96ca514e3f49c85cf0b4b6f138854e/src/include/access/htup_details.h#L188
     HEAP_HASNULL = 0x1
     HEAP_HASVARWIDTH = 0x2
@@ -148,46 +141,37 @@ class HeapT_InfomaskFlags(Enum):
     HEAP_MOVED_OFF = 0x4000
     HEAP_MOVED_IN = 0x8000
     
-class HeapT_Infomask2Flags(Enum):
+class HeapT_Infomask2Flags(IntFlag):
     HEAP_KEYS_UPDATED = 0x2000
     HEAP_HOT_UPDATED = 0x4000
     HEAP_ONLY_TUPLE = 0x8000
     
 class T_Infomask:
     HEAP_XACT_MASK = 0xFFF0
-    HEAP_LOCK_MASK = (HeapT_InfomaskFlags.HEAP_XMAX_EXCL_LOCK.value | HeapT_InfomaskFlags.HEAP_XMAX_EXCL_LOCK.value)
+    HEAP_LOCK_MASK = (HeapT_InfomaskFlags.HEAP_XMAX_EXCL_LOCK.value | HeapT_InfomaskFlags.HEAP_XMAX_KEYSHR_LOCK).value
     
     def __init__(self, t_infomask_bytes):
-        _t_infomask = struct.unpack('<H', t_infomask_bytes)[0]
-        self.flags = [x for x in HeapT_InfomaskFlags if x.value & _t_infomask]
+        self.flags = HeapT_InfomaskFlags(
+            struct.unpack('<H', t_infomask_bytes)[0]
+        )
         
     def to_bytes(self):
-        if self.flags:
-            return struct.pack('<H', functools.reduce(
-                lambda x, y: x | y, 
-                    [x.value for x in self.flags]
-                )
-            )
-        return struct.pack('<H', 0)
+        return struct.pack('<H', self.flags)
     
 class T_Infomask2:
     HEAP_NATTS_MASK = 0x07FF
+    HEAP_FLAGS_MASK = 0xF800
     HEAP2_XACT_MASK = 0xE000
     
     def __init__(self, t_infomask2_bytes):
         _t_infomask_2 = struct.unpack('<H', t_infomask2_bytes)[0]
-        self.flags = [x for x in HeapT_Infomask2Flags if x.value & _t_infomask_2]
         # get number of attributes in the item
         self.natts = _t_infomask_2 & self.HEAP_NATTS_MASK
 
+        self.flags = HeapT_Infomask2Flags(_t_infomask_2 & self.HEAP_FLAGS_MASK) 
+
     def to_bytes(self):
-        if self.flags:
-            return struct.pack('<H', self.natts | functools.reduce(
-                lambda x, y: x | y, 
-                    [x.value for x in self.flags]
-                )
-            )
-        return struct.pack('<H', self.natts | 0)
+        return struct.pack('<H', self.natts | self.flags)
 
 
 class HeapTupleHeaderData:
@@ -214,7 +198,7 @@ class HeapTupleHeaderData:
         self.nullmap = 0
 
         # if there is a null map, try to read it now
-        if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
+        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(self.t_infomask.flags):
             # null map has the bit size of the attribute number alligned to bytes
             self.nullmap_byte_size = math.ceil(self.t_infomask2.natts / 8)
             self.nullmap = int.from_bytes(filenode_bytes[offset+23:offset+23+self.nullmap_byte_size], byteorder='little')
@@ -229,7 +213,8 @@ class HeapTupleHeaderData:
         heap_tuple_header_bytes += self.t_infomask.to_bytes()
         heap_tuple_header_bytes += struct.pack('B', self.t_hoff)
         
-        if HeapT_InfomaskFlags.HEAP_HASNULL in self.t_infomask.flags:
+        # for some reason this fails without explicit typecast in HeapT_InfomaskFlags enum object
+        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(self.t_infomask.flags):
             heap_tuple_header_bytes += self.nullmap.to_bytes(self.nullmap_byte_size, byteorder='little')
         else:
             heap_tuple_header_bytes += b'\x00'
@@ -482,7 +467,7 @@ class Filenode:
 
             for i in range(item_header.t_infomask2.natts):
                 # check if row has null values
-                if HeapT_InfomaskFlags.HEAP_HASNULL in item_header.t_infomask.flags:
+                if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(item_header.t_infomask.flags):
                     field_present = _nullmap & 0x1
                     _nullmap >>= 1
                     # if the field is null
@@ -579,7 +564,7 @@ class Filenode:
                 # if field is null, make sure to set HEAP_HASNULL flag in the header
                 # skip the processing
                 if item_data[i] == 'NULL':
-                    item_header.t_infomask.flags = list(set(item_header.t_infomask.flags) + {HeapT_InfomaskFlags.HEAP_HASNULL})
+                    item_header.t_infomask.flags += HeapT_InfomaskFlags.HEAP_HASNULL
                     _nullmap = (_nullmap | 0) << 1
                     continue
                 
@@ -628,7 +613,7 @@ class Filenode:
 
             # if header has HEAP_HASNULL flag present, set nullmap that we calculated
             # earlier
-            if HeapT_InfomaskFlags.HEAP_HASNULL in item_header.t_infomask.flags:
+            if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(item_header.t_infomask.flags):
                 item_header.nullmap = _nullmap
 
             return item_data_bytes, item_header
@@ -718,12 +703,12 @@ class Filenode:
         
         # set corresponding flags in infomask to indicate that the new item 
         # is the updated version of the target item
-        new_item.header.t_infomask.flags = list(set(new_item.header.t_infomask.flags + [HeapT_InfomaskFlags.HEAP_XMAX_INVALID, HeapT_InfomaskFlags.HEAP_UPDATED]))
+        new_item.header.t_infomask.flags += HeapT_InfomaskFlags.HEAP_XMAX_INVALID | HeapT_InfomaskFlags.HEAP_UPDATED
         
         # set the corresponding flags in infomask to indicate that the old
         # item has been updated with the new one
-        target_item.header.t_infomask.flags = list(set(target_item.header.t_infomask2.flags) - {HeapT_InfomaskFlags.HEAP_UPDATED, HeapT_InfomaskFlags.HEAP_XMAX_INVALID})
-        target_item.header.t_infomask2.flags = list(set(target_item.header.t_infomask2.flags + [HeapT_Infomask2Flags.HEAP_HOT_UPDATED]))
+        target_item.header.t_infomask.flags -= HeapT_InfomaskFlags.HEAP_UPDATED | HeapT_InfomaskFlags.HEAP_XMAX_INVALID
+        target_item.header.t_infomask2.flags += HeapT_Infomask2Flags.HEAP_HOT_UPDATED
         
         # set xmin and xmax in the old item to be 1 less than the current one to
         # hopefully mark it as "stale"
@@ -769,7 +754,7 @@ class Filenode:
         # make copy of the target page
         new_page = copy.deepcopy(source_page)
         # unset any undesired flags
-        new_page.header.flags = [PdFlags.PD_UNDEFINED]
+        new_page.header.flags = PdFlags.PD_UNDEFINED
 
         # calculate byte length of the new item and set pd_lower and pd_upper accordingly
         new_item_byte_length = math.ceil(len(new_item.to_bytes())/ 8) * 8
