@@ -224,6 +224,8 @@ class Filenode:
             print(f'[!] Page {page_id}:')
             print(f'[*] Item {item_id}, length {self.pages[page_id].item_ids[item_id].lp_len}:')
             print(f'   {data}')
+
+            return data
         except IndexError:
             print('[-] Non existing page or item indexes provided')
 
@@ -253,8 +255,6 @@ class Filenode:
             
         except IndexError:
             print('[-] Non existing page or item indexes provided')
-        except NotImplementedError:
-            print('[-] Setting item data with length greater than the old one is not implemented yet')
 
     def _update_item_inline(self, page_id, item_id, new_item_data, new_item_header):
         # set new item length in corresponding ItemId object
