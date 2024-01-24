@@ -205,8 +205,8 @@ class Filenode:
                     if i + 1 < item_header.t_infomask2.natts:
                         if self.datatype.field_defs[i+1]['length'] != -1:
                             item_data_bytes += bytes(
-                                math.ceil(len(item_data_bytes)/4)*4 - len(item_data_bytes)
-                            )
+                                math.ceil(len(item_data_bytes)/4)*4 - \
+                                    len(item_data_bytes))
 
             # set nullmap to 0 (default case)
             _nullmap = 0
