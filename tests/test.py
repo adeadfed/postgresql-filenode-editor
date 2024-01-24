@@ -11,19 +11,44 @@ FILENODE_PATH = './tests/sample_filenodes'
 sample_filenodes = [
     # {
     #     'name': '1260',
-    #     'datatype': 'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;oid,oid,4,i;rolname,name,64,c;rolsuper,bool,1,c;rolinherit,bool,1,c;rolcreaterole,bool,1,c;rolcreatedb,bool,1,c;rolcanlogin,bool,1,c;rolreplication,bool,1,c;rolbypassrls,bool,1,c;rolconnlimit,int4,4,i;rolpassword,text,-1,i;rolvaliduntil,timestamptz,8,d',
+    #     'datatype': (
+    #         'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,'
+    #         '4,i;ctid,tid,6,s;oid,oid,4,i;rolname,name,64,c;rolsuper,bool,1,c;'
+    #         'rolinherit,bool,1,c;rolcreaterole,bool,1,c;rolcreatedb,bool,1,c;r'
+    #         'olcanlogin,bool,1,c;rolreplication,bool,1,c;rolbypassrls,bool,1,c'
+    #         ';rolconnlimit,int4,4,i;rolpassword,text,-1,i;rolvaliduntil,timest'
+    #         'amptz,8,d')
     # },
     {
         'name': '40996',
-        'datatype': 'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;user_id,int4,4,i;birthday,date,4,i;username,varchar,-1,i;email,varchar,-1,i;password,varchar,-1,i;address,text,-1,i;role,int4,4,i;active,bool,1,c',
-        'payload_dt_inline': '1,42,Test,Test@test.com,Testpass123,Test Address,42,1',
+        'datatype': (
+            'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,'
+            '4,i;ctid,tid,6,s;user_id,int4,4,i;birthday,date,4,i;username,varc'
+            'har,-1,i;email,varchar,-1,i;password,varchar,-1,i;address,text,-1'
+            ',i;role,int4,4,i;active,bool,1,c'
+        ),
+        'payload_dt_inline': (
+            '1,42,Test,Test@test.com,Testpass123,Test Address,42,1'
+        ),
         'payload_dt_null': '1,NULL,Test,NULL,Testpass123,Test Address,42,NULL',
-        'payload_dt_long': '1,42,SuperLongStringAAAAAAAAA,SuperLongStringAAAAAAAAAAAAAAA,SuperLongStringAAAAAAAAAAAAAAA,SuperLongStringAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,42,1',
-        'payload_raw': b'\x01\x00\x00\x00\x42\x42\x42\x42\rTest1!test1@test1.com\x1btest1pass123\x69Suite 491 22979 Veum Grove, Gorczanymouth, NH 12345\x00\x42\x00\x00\x00\x01'
+        'payload_dt_long': (
+            '1,42,SuperLongStringAAAAAAAAA,SuperLongStringAAAAAAAAAAAAAAA,Sup'
+            'erLongStringAAAAAAAAAAAAAAA,SuperLongStringAAAAAAAAAAAAAAAAAAAAA'
+            'AAAAAAAAAAAAAA,42,1'
+        ),
+        'payload_raw': (
+            b'\x01\x00\x00\x00\x42\x42\x42\x42\rTest1!test1@test1.com\x1btest1'
+            b'pass123\x69Suite 491 22979 Veum Grove, Gorczanymouth, NH 12345'
+            b'\x00\x42\x00\x00\x00\x01'
+        )
     },
     {
         'name': '41014',
-        'datatype': 'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,4,i;ctid,tid,6,s;id,int4,4,i;name,varchar,-1,i;age,int4,4,i;city,varchar,-1,i',
+        'datatype': (
+            'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,'
+            '4,i;ctid,tid,6,s;id,int4,4,i;name,varchar,-1,i;age,int4,4,i;city,'
+            'varchar,-1,i'
+        ),
         'payload_dt_inline': '42,Test,43,Test1',
         'payload_dt_null': '42,Test1,43,NULL',
         'payload_dt_long': '42,Test1,43,super loooooooooooooong string',

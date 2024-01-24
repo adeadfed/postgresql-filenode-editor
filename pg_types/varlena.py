@@ -33,8 +33,8 @@ class Varlena:
 
     def to_bytes(self):
         return int.to_bytes(
-            self.va_header, 
-            length=self._VA_HEADER_SIZE, 
+            self.va_header,
+            length=self._VA_HEADER_SIZE,
             byteorder='little'
         ) + self.value
 

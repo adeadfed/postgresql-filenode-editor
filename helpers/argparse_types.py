@@ -20,19 +20,19 @@ def Path(path):
 def Base64Data(b64_data):
     try:
         return base64.b64decode(b64_data)
-    except:
+    except Exception:
         raise argparse.ArgumentTypeError('Invalid base64 data supplied')
 
 
 def CsvData(csv_data):
     try:
         return list(csv.reader(StringIO(csv_data)))[0]
-    except:
+    except Exception:
         raise argparse.ArgumentTypeError('Invalid CSV data supplied')
 
 
 def DataTypeCsv(dtype_csv):
     try:
         return DataType(dtype_csv)
-    except:
+    except Exception:
         raise argparse.ArgumentTypeError('Invalid datatype CSV supplied')

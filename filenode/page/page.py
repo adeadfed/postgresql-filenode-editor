@@ -18,14 +18,14 @@ class Page:
         # indicated by header.pd_lower field
         items_id_data = filenode_bytes[
             offset +
-            PageHeaderData._FIELD_SIZE:offset + 
+            PageHeaderData._FIELD_SIZE:offset +
             self.header.pd_lower
         ]
         self.item_ids = [ItemIdData(items_id_data[i:i+4])
                          for i in range(0, len(items_id_data), 4)]
         # iterate over item ids, populate actual items (i.e. rows) in the page
-        # item_id.lp_off will point to the HeapTupleHeaderData object of the 
-        # actual item we will need to parse this object to obtain information 
+        # item_id.lp_off will point to the HeapTupleHeaderData object of the
+        # actual item we will need to parse this object to obtain information
         # about the item and an offset to the actual data
         # read HeapTupleHeaderData object
         self.items = [Item(offset+x.lp_off, x.lp_len, filenode_bytes)

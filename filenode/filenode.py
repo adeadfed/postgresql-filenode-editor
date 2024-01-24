@@ -67,7 +67,7 @@ class Filenode:
                         if self.datatype.field_defs[i]['type'] in \
                                                             PARSEABLE_TYPES:
                             value = struct.unpack(
-                                f'<{self.datatype.field_defs[i]["alignment"].value}', 
+                                f'<{self.datatype.field_defs[i]["alignment"].value}',
                                 item_data[offset:offset+length]
                             )[0]
                         else:
@@ -84,7 +84,7 @@ class Filenode:
                     # see
                     # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
 
-                    # TODO: i can do better job with parsing and initiating 
+                    # TODO: i can do better job with parsing and initiating
                     # classes based on value
                     va_header = item_data[offset]
                     # determine type of varlen header
@@ -133,7 +133,7 @@ class Filenode:
                 # move past the field we've just read
                 offset += length
             return unserialized_data
-        except Exception as e:
+        except Exception:
             logger.exception('An exception occured during deserialization')
 
     def _serialize_data(self, item_data, item_header):
@@ -161,7 +161,7 @@ class Filenode:
                     # check if the field type is supported by the parser
                     if field_def['type'] in PARSEABLE_TYPES:
                         item_data_bytes += struct.pack(
-                            f'<{field_def["alignment"].value}', 
+                            f'<{field_def["alignment"].value}',
                             int(item_data[i])
                         )
                     # else we would need to set the raw byte value of the field
@@ -169,7 +169,7 @@ class Filenode:
                     else:
                         try:
                             item_data_bytes += base64.b64decode(item_data[i])
-                        except:
+                        except Exception:
                             raise NotImplementedError(
                                 f'Field {field_def["name"]} has a type \
                                 {field_def["type"]} that cannot be serialized \
@@ -183,16 +183,15 @@ class Filenode:
                         raise ValueError(
                             f'Field {field_def["name"]} must be a string \
                                 value!')
-                    # choose correct VarlenA object based on supplied data 
+                    # choose correct VarlenA object based on supplied data
                     # length
                     if len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
                         varlena_field = Varlena_1B()
                     elif len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
                         varlena_field = Varlena_4B()
                     else:
-                        raise ValueError(
-                            f'Data length is greater than the maximum one of \
-                                the supported VarlenA structures')
+                        raise ValueError('Data length is greater than the \
+                            maximum one of the supported VarlenA structures')
                     # set value of the varlena object
                     varlena_field.set_value(item_data[i].encode('utf-8'))
                     # serialize varlena object to bytes
@@ -205,12 +204,13 @@ class Filenode:
                     if i + 1 < item_header.t_infomask2.natts:
                         if self.datatype.field_defs[i+1]['length'] != -1:
                             item_data_bytes += bytes(
-                                math.ceil(len(item_data_bytes)/4)*4 - \
-                                    len(item_data_bytes))
+                                math.ceil(len(item_data_bytes)/4)*4 -
+                                len(item_data_bytes)
+                            )
 
             # set nullmap to 0 (default case)
             _nullmap = 0
-            # if any of the fields is null, we need to recalculate 
+            # if any of the fields is null, we need to recalculate
             # nullmap value
             if any(value == 'NULL' for value in item_data):
                 # indicate in header that we have a nullmap
@@ -233,7 +233,7 @@ class Filenode:
 
             return item_data_bytes, item_header
 
-        except Exception as e:
+        except Exception:
             logger.exception('An exception occured during deserialization')
 
     def print_data(self, items_to_print):
@@ -293,7 +293,7 @@ class Filenode:
     def update_item(self, page_id, item_id, new_item_data):
         try:
             item = self.pages[page_id].items[item_id]
-            # check if we the user passed us CSV with datatype, or a raw 
+            # check if we the user passed us CSV with datatype, or a raw
             # Base64-encoded data
             if isinstance(new_item_data, list):
                 new_item_data, new_item_header = self._serialize_data(
@@ -309,7 +309,7 @@ class Filenode:
             # indicating the updated row
 
             # if there is no room for the new item in the page, we'd need
-            # to either place the new item in the last page, or create 
+            # to either place the new item in the last page, or create
             # a new one
             if len(new_item_data) > len(item.data):
                 self._update_item_new_item(
@@ -321,7 +321,7 @@ class Filenode:
         except IndexError:
             logger.error('Non existing page or item indexes provided')
 
-    def _update_item_inline(self, page_id, item_id, new_item_data, 
+    def _update_item_inline(self, page_id, item_id, new_item_data,
                             new_item_header):
         # set new item length in corresponding ItemId object
         self.pages[page_id].item_ids[item_id].lp_len = len(new_item_data) + \
@@ -332,7 +332,7 @@ class Filenode:
         # set new data in the item object
         self.pages[page_id].items[item_id].data = new_item_data
 
-    def _update_item_new_item(self, page_id, item_id, new_item_data, 
+    def _update_item_new_item(self, page_id, item_id, new_item_data,
                               new_item_header):
         target_item = self.pages[page_id].items[item_id]
         target_item_id = self.pages[page_id].item_ids[item_id]
@@ -356,7 +356,7 @@ class Filenode:
             HeapT_InfomaskFlags.HEAP_XMAX_INVALID
         target_item.header.t_infomask2.flags += HeapT_Infomask2Flags.HEAP_HOT_UPDATED
 
-        # set xmin and xmax in the old item to be 1 less than the current one 
+        # set xmin and xmax in the old item to be 1 less than the current one
         # to hopefully mark it as "stale"
         target_item.header.t_xmax = target_item.header.t_xmin
         target_item.header.t_xmin -= 1
@@ -377,7 +377,7 @@ class Filenode:
         # set byte length in the corresponding ItemIdData object
         new_item_id.lp_len = new_item_byte_length
 
-        if new_item_byte_length > (self.pages[page_id].header.pd_upper - \
+        if new_item_byte_length > (self.pages[page_id].header.pd_upper -
                                    self.pages[page_id].header.pd_lower):
             # create new page with item in it
             self._update_item_new_page(page_id, new_item_id, new_item)
@@ -401,7 +401,7 @@ class Filenode:
         # unset any undesired flags
         new_page.header.flags = PdFlags.PD_UNDEFINED
 
-        # calculate byte length of the new item and set pd_lower and pd_upper 
+        # calculate byte length of the new item and set pd_lower and pd_upper
         # accordingly
         new_item_byte_length = math.ceil(len(new_item.to_bytes()) / 8) * 8
         new_page.header.pd_lower = PageHeaderData._FIELD_SIZE + 4

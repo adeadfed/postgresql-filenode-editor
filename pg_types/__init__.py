@@ -18,3 +18,5 @@ PARSEABLE_TYPES = [
     'serial4',
     'serial8'
 ]
+
+__all__ = ['Varlena_1B', 'Varlena_4B', 'DataType']
