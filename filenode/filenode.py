@@ -253,7 +253,7 @@ class Filenode:
                 
             self.print_data(items_to_print)
         except IndexError:
-            logger.error('[-] Non existing page index provided')
+            logger.error('Non existing page index provided')
 
     def read_item(self, page_id, item_id):
         try:
@@ -265,7 +265,7 @@ class Filenode:
 
             return data
         except IndexError:
-            logger.error('[-] Non existing page or item indexes provided')
+            logger.error('Non existing page or item indexes provided')
 
 
     def update_item(self, page_id, item_id, new_item_data):
@@ -292,7 +292,7 @@ class Filenode:
                 self._update_item_inline(page_id, item_id, new_item_data, new_item_header)
             
         except IndexError:
-            logger.error('[-] Non existing page or item indexes provided')
+            logger.error('Non existing page or item indexes provided')
 
     def _update_item_inline(self, page_id, item_id, new_item_data, new_item_header):
         # set new item length in corresponding ItemId object
