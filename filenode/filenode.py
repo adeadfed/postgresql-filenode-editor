@@ -31,11 +31,8 @@ class Filenode:
             page_offset += page.header.length
 
     def _deserialize_data(self, item_data, item_header):
-        if self.datatype is None:
-            return item_data
-
         try:
-            unserialized_data = list()
+            deserialized_data = list()
             offset = 0
 
             # copy of nullmap
@@ -50,7 +47,7 @@ class Filenode:
                     _nullmap >>= 1
                     # if the field is null
                     if not field_present:
-                        unserialized_data.append({
+                        deserialized_data.append({
                             'name': self.datatype.field_defs[i]['name'],
                             'type': self.datatype.field_defs[i]['type'],
                             'value': b'',
@@ -60,70 +57,35 @@ class Filenode:
 
                 # handle fixed length fields
                 if self.datatype.field_defs[i]['length'] > 0:
-                    value = b''
                     length = self.datatype.field_defs[i]['length']
-
-                    if item_data[offset:offset+length]:
-                        if self.datatype.field_defs[i]['type'] in \
-                                                            PARSEABLE_TYPES:
-                            value = struct.unpack(
-                                f'<{self.datatype.field_defs[i]["alignment"].value}',
-                                item_data[offset:offset+length]
-                            )[0]
-                        else:
-                            value = item_data[offset:offset+length]
+                    value = self._deserialize_fixed_len_field(
+                        self.datatype.field_defs[i],
+                        item_data[offset:offset+length]
+                    )
 
                 # handle varlena fields, e.g. text, varchar
                 if self.datatype.field_defs[i]['length'] == -1:
-                    # varlena struct has a length field at the start
-                    # it can either be 1 or 4 bytes
+                    varlena_field = self._deserialize_varlena_field(
+                        item_data[offset:]
+                    )
 
-                    # information about the varlena structure is stored in
-                    # the first byte
+                    value = varlena_field.value
+                    length = varlena_field._get_size()
 
-                    # see
-                    # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
-
-                    # TODO: i can do better job with parsing and initiating
-                    # classes based on value
-                    va_header = item_data[offset]
-                    # determine type of varlen header
-                    if va_header == 0x01:
-                        # VARATT_IS_1B_E
-                        raise NotImplementedError(
-                            'Parsing of external varlena structures is not \
-                                implemented')
-                    elif (va_header & 0x01) == 0x01:
-                        # VARATT_IS_1B
-                        varlena_field = Varlena_1B(item_data[offset:])
-                        value = varlena_field.value
-                        length = varlena_field._get_size()
-
-                        # Varlena is not padded
-                        # if we encounter a Varlena column, and the next
-                        # column is not a Varlena, we would need to pad
-                        # the data to match the 4 byte alignment
-                        if i + 1 < item_header.t_infomask2.natts:
-                            if self.datatype.field_defs[i+1]['length'] != -1:
-                                length += math.ceil((offset+length)/4) * \
-                                    4 - (offset+length)
-
-                    elif (va_header & 0x03) == 0x02:
-                        # VARATT_IS_4B_C
-                        raise NotImplementedError(
-                            'Parsing of compressed varlena structures is not \
-                                implemented')
-                    elif (va_header & 0x03) == 0x00:
-                        # VARATT_IS_4B_U
-                        varlena_field = Varlena_4B(item_data[offset:])
-                        value = varlena_field.value
-                        length = varlena_field._get_size()
-
-                    else:
-                        raise ValueError('Invalid value for Varlena header')
+                    # Varlena_1B is not padded
+                    # if we encounter a Varlena_1B column, and the next
+                    # column is not a Varlena, we would need to pad
+                    # the data to match the 4 byte alignment
+                    if i + 1 < item_header.t_infomask2.natts:
+                        if all([
+                            isinstance(varlena_field, Varlena_1B),
+                            self.datatype.field_defs[i+1]['length'] != -1
+                        ]):
+                            length += math.ceil((offset+length)/4) * \
+                                4 - (offset+length)
 
                 # append the unserialized field to the output
-                unserialized_data.append({
+                deserialized_data.append({
                     'name': self.datatype.field_defs[i]['name'],
                     'type': self.datatype.field_defs[i]['type'],
                     'value': value,
@@ -132,81 +94,92 @@ class Filenode:
 
                 # move past the field we've just read
                 offset += length
-            return unserialized_data
+            return deserialized_data
         except Exception:
             logger.exception('An exception occured during deserialization')
 
+    def _deserialize_fixed_len_field(self, field_def, field_bytes):
+        if field_bytes:
+            if field_def['type'] in PARSEABLE_TYPES:
+                return struct.unpack(
+                    f'<{field_def["alignment"].value}',
+                    field_bytes
+                )[0]
+        # not supported fixed length type or empty data
+        # just return the byteslice back
+        return field_bytes
+
+    def _deserialize_varlena_field(self, field_bytes):
+        # varlena struct has a length field at the start
+        # it can either be 1 or 4 bytes
+
+        # information about the varlena structure is stored in
+        # the first byte
+
+        # see
+        # https://doxygen.postgresql.org/varatt_8h_source.html#l00141
+        va_header = field_bytes[0]
+        # determine type of varlen header
+        if va_header == 0x01:
+            # VARATT_IS_1B_E
+            raise NotImplementedError(
+                'Parsing of external varlena structures is not \
+                    implemented')
+        elif (va_header & 0x01) == 0x01:
+            # VARATT_IS_1B
+            return Varlena_1B(field_bytes)
+        elif (va_header & 0x03) == 0x02:
+            # VARATT_IS_4B_C
+            raise NotImplementedError(
+                'Parsing of compressed varlena structures is not \
+                    implemented')
+        elif (va_header & 0x03) == 0x00:
+            # VARATT_IS_4B_U
+            return Varlena_4B(field_bytes)
+        raise ValueError('Invalid value for Varlena header')
+
     def _serialize_data(self, item_data, item_header):
         try:
-            if self.datatype is None:
-                raise Exception(
-                    'Serialization requires a valid datatype of the filenode')
-
-            if len(self.datatype.field_defs) != len(item_data):
-                raise Exception(
-                    'Number of supplied values in --data-csv parameter does \
-                    not match the number of fields in datatype')
-
             # if datatype is present, try to serialize the data into bytes
-            item_data_bytes = b''
+            serialized_data = b''
             for i in range(len(self.datatype.field_defs)):
                 field_def = self.datatype.field_defs[i]
 
                 # if field is null, skip the processing
                 if item_data[i] == 'NULL':
                     continue
-
                 # handle fixed length data fields
                 if field_def['length'] > 0:
-                    # check if the field type is supported by the parser
-                    if field_def['type'] in PARSEABLE_TYPES:
-                        item_data_bytes += struct.pack(
-                            f'<{field_def["alignment"].value}',
-                            int(item_data[i])
-                        )
-                    # else we would need to set the raw byte value of the field
-                    # from the user input
-                    else:
-                        try:
-                            item_data_bytes += base64.b64decode(item_data[i])
-                        except Exception:
-                            raise NotImplementedError(
-                                f'Field {field_def["name"]} has a type \
-                                {field_def["type"]} that cannot be serialized \
-                                automatically. Please supply a Base64-encoded \
-                                byte value in order to edit it.')
-
+                    serialized_data += self._serialize_fixed_len_field(
+                        field_def,
+                        item_data[i]
+                    )
                 # handle varlena fields
-                else:
-                    # sanity check, we should be dealing with strings here
-                    if not isinstance(item_data[i], str):
-                        raise ValueError(
-                            f'Field {field_def["name"]} must be a string \
-                                value!')
-                    # choose correct VarlenA object based on supplied data
-                    # length
-                    if len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
-                        varlena_field = Varlena_1B()
-                    elif len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
-                        varlena_field = Varlena_4B()
-                    else:
-                        raise ValueError('Data length is greater than the \
-                            maximum one of the supported VarlenA structures')
-                    # set value of the varlena object
-                    varlena_field.set_value(item_data[i].encode('utf-8'))
+                elif field_def['length'] == -1:
+                    varlena_field = self._serialize_varlena_field(
+                        field_def,
+                        item_data[i]
+                    )
                     # serialize varlena object to bytes
-                    item_data_bytes += varlena_field.to_bytes()
+                    serialized_data += varlena_field.to_bytes()
 
-                    # Varlena is not padded
-                    # if we encounter a Varlena column, and the next
+                    # Varlena_1B is not padded
+                    # if we encounter a Varlena_1B column, and the next
                     # column is not a Varlena, we would need to pad
                     # the data to match the 4 byte alignment
                     if i + 1 < item_header.t_infomask2.natts:
-                        if self.datatype.field_defs[i+1]['length'] != -1:
-                            item_data_bytes += bytes(
-                                math.ceil(len(item_data_bytes)/4)*4 -
-                                len(item_data_bytes)
+                        if all([
+                            isinstance(varlena_field, Varlena_1B),
+                            self.datatype.field_defs[i+1]['length'] != -1
+                        ]):
+                            serialized_data += bytes(
+                                math.ceil(len(serialized_data)/4)*4 -
+                                len(serialized_data)
                             )
+                else:
+                    raise NotImplementedError(
+                        'Cannot serialize field with length 0'
+                    )
 
             # set nullmap to 0 (default case)
             _nullmap = 0
@@ -231,10 +204,46 @@ class Filenode:
             # set nullmap value to header
             item_header.nullmap = _nullmap
 
-            return item_data_bytes, item_header
+            return serialized_data, item_header
 
         except Exception:
             logger.exception('An exception occured during deserialization')
+
+    def _serialize_fixed_len_field(self, field_def, field_value):
+        # check if the field type is supported by the parser
+        if field_def['type'] in PARSEABLE_TYPES:
+            return struct.pack(
+                f'<{field_def["alignment"].value}',
+                int(field_value)
+            )
+        # else we would need to set the raw byte value of the field from the
+        # user input
+        try:
+            return base64.b64decode(field_value)
+        except Exception:
+            raise NotImplementedError(
+                f'Field {field_def["name"]} has a type {field_def["type"]}\
+                    that cannot be serialized automatically. Please supply a \
+                Base64-encoded byte value in order to edit it.')
+
+    def _serialize_varlena_field(self, field_def, field_value):
+        # sanity check, we should be dealing with strings here
+        if not isinstance(field_value, str):
+            raise ValueError(
+                f'Field {field_def["name"]} must be a string \
+                    value!')
+        # choose correct VarlenA object based on supplied data
+        # length
+        if len(field_value) < Varlena_1B._VA_MAX_DATA_SIZE:
+            varlena_field = Varlena_1B()
+        elif len(field_value) < Varlena_1B._VA_MAX_DATA_SIZE:
+            varlena_field = Varlena_4B()
+        else:
+            raise ValueError('Data length is greater than the \
+                maximum one of the supported VarlenA structures')
+        # set value of the varlena object
+        varlena_field.set_value(field_value.encode('utf-8'))
+        return varlena_field
 
     def print_data(self, items_to_print):
         # init pretty table object
@@ -271,8 +280,12 @@ class Filenode:
 
             for j in range(len(self.pages[page_id].items)):
                 item = self.pages[page_id].items[j]
-                items_to_print.append(
-                    self._deserialize_data(item.data, item.header))
+                # deserialize data if datatype is present
+                if self.datatype:
+                    data = self._deserialize_data(item.data, item.header)
+                else:
+                    data = item.data
+                items_to_print.append(data)
 
             self.print_data(items_to_print)
         except IndexError:
@@ -281,9 +294,13 @@ class Filenode:
     def read_item(self, page_id, item_id):
         try:
             item = self.pages[page_id].items[item_id]
-            data = self._deserialize_data(item.data, item.header)
-            logger.success(f'Page {page_id}:')
+            # deserialize data if datatype is present
+            if self.datatype:
+                data = self._deserialize_data(item.data, item.header)
+            else:
+                data = item.data
 
+            logger.success(f'Page {page_id}:')
             self.print_data([data])
 
             return data
@@ -296,9 +313,24 @@ class Filenode:
             # check if we the user passed us CSV with datatype, or a raw
             # Base64-encoded data
             if isinstance(new_item_data, list):
+                # check if datatype is given py the user
+                if self.datatype is None:
+                    raise Exception(
+                        'Serialization requires a valid datatype of the \
+                            filenode')
+
+                # check if datatype and data have matching number of
+                # fields
+                if len(self.datatype.field_defs) != len(new_item_data):
+                    raise Exception(
+                        'Number of supplied values in --data-csv parameter does \
+                        not match the number of fields in datatype')
+                # try to serialize data into raw bytes using datatype
                 new_item_data, new_item_header = self._serialize_data(
                     new_item_data, item.header)
             else:
+                # else try to use raw bytes from a user-supplied b64
+                # string
                 new_item_data = base64.b64decode(new_item_data)
                 new_item_header = item.header
 
