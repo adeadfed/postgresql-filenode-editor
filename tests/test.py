@@ -64,14 +64,14 @@ def test_list_one_datatype():
         filenode.list_page(page_id=0)
 
 
-def test_get_raw():
+def test_read_raw():
     for sample_filenode in sample_filenodes:
         filenode_path = pathlib.Path(FILENODE_PATH, sample_filenode['name'])
         filenode = Filenode(filenode_path)
         
         filenode.read_item(page_id=0, item_id=0)
 
-def test_get_datatype():
+def test_read_datatype():
     for sample_filenode in sample_filenodes:
         filenode_path = pathlib.Path(FILENODE_PATH, sample_filenode['name'])
 
