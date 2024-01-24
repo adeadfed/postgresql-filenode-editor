@@ -36,7 +36,7 @@ class Varlena_1B(Varlena):
     
     def _set_size(self, new_size):
         if new_size >= self._VA_MAX_DATA_SIZE:
-            raise ValueError(f'[-] Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
+            raise ValueError(f'Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
         # account for the size of va_header by adding extra 1 byte
         self.va_header |= ((new_size + 1) & 0x7F) << 1
 
@@ -61,7 +61,7 @@ class Varlena_4B(Varlena):
     
     def _set_size(self, new_size):
         if new_size >= self._VA_MAX_DATA_SIZE:
-            raise ValueError(f'[-] Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
+            raise ValueError(f'Varlena new length {new_size} is greater than maximum value of {self._VA_MAX_DATA_SIZE} bytes')
         # account for the size of va_header by adding extra 4 bytes
         self.va_header |= ((new_size + 4) & 0x3FFFFFFF) << 2
 
