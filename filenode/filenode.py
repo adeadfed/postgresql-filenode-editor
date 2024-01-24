@@ -169,9 +169,8 @@ class Filenode:
                         varlena_field = Varlena_4B()
                     else:
                         raise ValueError(f'Supplied data length is greater than the maximum one of the supported VarlenA structures')
-                    # set length and value of the varlena object
-                    varlena_field._set_size(len(item_data[i]))
-                    varlena_field.value = item_data[i].encode('utf-8')
+                    # set value of the varlena object
+                    varlena_field.set_value(item_data[i].encode('utf-8'))
                     # serialize varlena object to bytes
                     item_data_bytes += varlena_field.to_bytes()
 
