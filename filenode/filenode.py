@@ -129,10 +129,10 @@ class Filenode:
     def _serialize_data(self, item_data, item_header):
         try:
             if self.datatype is None:
-                raise Exception('[-] Serialization requires a valid datatype of the filenode')
+                raise Exception('Serialization requires a valid datatype of the filenode')
             
             if len(self.datatype.field_defs) != len(item_data):
-                raise Exception('[-] Number of supplied values in --data-csv parameter does not match the number of fields in datatype')
+                raise Exception('Number of supplied values in --data-csv parameter does not match the number of fields in datatype')
         
             # if datatype is present, try to serialize the data into bytes
             item_data_bytes = b''
@@ -155,20 +155,20 @@ class Filenode:
                         try:
                             item_data_bytes += base64.b64decode(item_data[i])
                         except:
-                            raise NotImplementedError(f'[-] Field {field_def["name"]} has a type {field_def["type"]} that cannot be serialized automatically. Please supply a Base64-encoded byte value in order to edit it.')
+                            raise NotImplementedError(f'Field {field_def["name"]} has a type {field_def["type"]} that cannot be serialized automatically. Please supply a Base64-encoded byte value in order to edit it.')
                         
                 # handle varlena fields
                 else:
                     # sanity check, we should be dealing with strings here
                     if not isinstance(item_data[i], str):
-                        raise ValueError(f'[-] Field {field_def["name"]} must be a string value!') 
+                        raise ValueError(f'Field {field_def["name"]} must be a string value!') 
                     # choose correct VarlenA object based on supplied data length
                     if len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
                         varlena_field = Varlena_1B()    
                     elif len(item_data[i]) < Varlena_1B._VA_MAX_DATA_SIZE:
                         varlena_field = Varlena_4B()
                     else:
-                        raise ValueError(f'[-] Supplied data length is greater than the maximum one of the supported VarlenA structures')
+                        raise ValueError(f'Supplied data length is greater than the maximum one of the supported VarlenA structures')
                     # set length and value of the varlena object
                     varlena_field._set_size(len(item_data[i]))
                     varlena_field.value = item_data[i].encode('utf-8')
