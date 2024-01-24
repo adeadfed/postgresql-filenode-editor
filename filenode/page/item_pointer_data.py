@@ -2,6 +2,7 @@ import struct
 
 from .block_id_data import BlockIdData
 
+
 class ItemPointerData:
     _FIELD_SIZE = 6
 
@@ -13,5 +14,5 @@ class ItemPointerData:
         item_pointer_bytes = b''
         item_pointer_bytes += self.ip_blkid.to_bytes()
         item_pointer_bytes += struct.pack('<H', self.ip_posid)
-        
+
         return item_pointer_bytes

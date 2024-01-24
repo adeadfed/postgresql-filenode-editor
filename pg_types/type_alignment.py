@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class TypAlign(Enum):
     CHAR = 'b'
     SHORT = 'h'

@@ -5,12 +5,15 @@ import csv
 from io import StringIO
 from pg_types import DataType
 
+
 def Path(path):
     path = pathlib.Path(path)
     if not path.exists():
-        raise argparse.ArgumentTypeError('Supplied filenode path does not exist')
+        raise argparse.ArgumentTypeError(
+            'Supplied filenode path does not exist')
     if not path.is_file():
-        raise argparse.ArgumentTypeError('Supplied filenode path is not a file')
+        raise argparse.ArgumentTypeError(
+            'Supplied filenode path is not a file')
     return path
 
 
@@ -33,4 +36,3 @@ def DataTypeCsv(dtype_csv):
         return DataType(dtype_csv)
     except:
         raise argparse.ArgumentTypeError('Invalid datatype CSV supplied')
-

@@ -1,5 +1,6 @@
 from .heap_tuple_header_data import HeapTupleHeaderData
 
+
 class Item:
     def __init__(self, offset, length, filenode_bytes):
         self.header = HeapTupleHeaderData(offset, filenode_bytes)
@@ -9,5 +10,5 @@ class Item:
         item_bytes = b''
         item_bytes += self.header.to_bytes()
         item_bytes += self.data
-        
+
         return item_bytes

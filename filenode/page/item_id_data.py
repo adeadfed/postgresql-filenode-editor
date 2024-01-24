@@ -11,6 +11,7 @@ class LpFlags(Enum):
 
 class ItemIdData:
     _FIELD_SIZE = 4
+
     def __init__(self, item_id_bytes):
         _encoded_data = struct.unpack('<I', item_id_bytes)[0]
         # lower 15 bits store the item offset
