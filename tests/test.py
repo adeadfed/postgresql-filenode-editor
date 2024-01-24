@@ -143,11 +143,9 @@ def test_update_datatype_null():
 
         filenode = Filenode(filenode_new_path, datatype=datatype)
         
-        print(filenode.read_item(0, 0))
-
         updated_values = list()
         for field in filenode.read_item(0, 0):
-            print(field)
+            
             value = field['value']
             if field['is_null']:
                 value = 'NULL'
