@@ -93,7 +93,7 @@ class Filenode:
                         # if we encounter a Varlena column, and the next
                         # column is not a Varlena, we would need to pad
                         # the data to match the 4 byte alignment
-                        if i < item_header.t_infomask2.natts - 1:
+                        if i + 1 < item_header.t_infomask2.natts:
                             if self.datatype.field_defs[i+1]['length'] != -1:
                                 length += math.ceil((offset+length)/4)*4 - (offset+length)
 
@@ -128,19 +128,18 @@ class Filenode:
         try:
             if self.datatype is None:
                 raise Exception('[-] Serialization requires a valid datatype of the filenode')
+            
+            if len(self.datatype.field_defs) != len(item_data):
+                raise Exception('[-] Number of supplied values in --data-csv parameter does not match the number of fields in datatype')
         
             # if datatype is present, try to serialize the data into bytes
             item_data_bytes = b''
-            _nullmap = 0
-
             for i in range(len(self.datatype.field_defs)):
                 field_def = self.datatype.field_defs[i]
 
                 # if field is null, make sure to set HEAP_HASNULL flag in the header
                 # skip the processing
                 if item_data[i] == 'NULL':
-                    item_header.t_infomask.flags += HeapT_InfomaskFlags.HEAP_HASNULL
-                    _nullmap = (_nullmap | 0) << 1
                     continue
                 
                 # handle fixed length data fields
@@ -178,18 +177,33 @@ class Filenode:
                     # if we encounter a Varlena column, and the next
                     # column is not a Varlena, we would need to pad
                     # the data to match the 4 byte alignment
-                    if i < item_header.t_infomask2.natts - 1:
+                    if i + 1 < item_header.t_infomask2.natts:
                         if self.datatype.field_defs[i+1]['length'] != -1:
                             item_data_bytes += bytes(math.ceil(len(item_data_bytes)/4)*4 - len(item_data_bytes)) 
                 
-                # calculate temp nullmap value to set it later in case we encounter
-                # any null values
-                _nullmap = (_nullmap | 1) << 1
 
-            # if header has HEAP_HASNULL flag present, set nullmap that we calculated
-            # earlier
-            if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(item_header.t_infomask.flags):
-                item_header.nullmap = _nullmap
+            
+
+            # set nullmap to 0 (default case)
+            _nullmap = 0
+            # if any of the fields is null, we need to recalculate nullmap value
+            if any(value == 'NULL' for value in item_data):
+                # indicate in header that we have a nullmap
+                item_header.t_infomask.flags |= HeapT_InfomaskFlags.HEAP_HASNULL
+                # for every field value construct a nullmap
+                # NULL field in nullmap will be marked as 0
+                # non-null fields will be marked as 1
+                # order of fields must be reversed due to 
+                # little-endian architecture
+                # cast resulting nullmap into integer
+                # e.g.
+                # [1, NULL, Test, NULL, NULL]
+                # will produce the following bitmap
+                # '00101' or 5
+                _nullmap = int(''.join(str(int(x != 'NULL')) for x in reversed(item_data)),2)
+            
+            # set nullmap value to header
+            item_header.nullmap = _nullmap
 
             return item_data_bytes, item_header
         
