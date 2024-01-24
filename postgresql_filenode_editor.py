@@ -28,7 +28,7 @@ if __name__ == '__main__':
             filenode.list_pages()
     if args.mode == 'read':
         if args.page is not None and args.item is not None:
-            filenode.get_item(args.page, args.item)
+            filenode.read_item(args.page, args.item)
         else:
             print('[-] please provide page and item indexes via --page and --item arguments')    
     if args.mode == 'raw_update':

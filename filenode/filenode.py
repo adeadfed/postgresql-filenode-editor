@@ -2,6 +2,7 @@ import math
 import copy
 import base64
 import struct
+from prettytable import PrettyTable
 
 from .page import Page
 from .page.item_id_data import LpFlags
@@ -211,33 +212,55 @@ class Filenode:
             print(f'The following exception has occured during deserialization: {e}')
 
 
+    def print_data(self, items_to_print):
+        # init pretty table object
+        page_table = PrettyTable()
+
+        # set field names according to the datatype
+        # if it exists
+        if self.datatype:
+            page_field_names = [x['name'] for x in self.datatype.field_defs]
+        else:
+            page_field_names = ['raw_data']
+        page_table.field_names = ['item_no'] + page_field_names
+
+        for i in range(len(items_to_print)):
+            table_row = [i]
+            # if datatype exists, parse item fields and add them to the row
+            if self.datatype:
+                table_row += [x['value'] for x in items_to_print[i]]
+            # else, add entire raw item to the row
+            else:
+                table_row += [items_to_print[i]]
+            page_table.add_row(table_row)
+        
+        print(page_table)
+
+
     def list_pages(self):
         for i in range(len(self.pages)):
-            print(f'[!] Page {i}:')
-            for j in range(len(self.pages[i].items)):
-                item = self.pages[i].items[j]
-                data = self._deserialize_data(item.data, item.header)
-                print(f'[*] Item {j}, length {self.pages[i].item_ids[j].lp_len}:')
-                print(f'   {data}')
+            self.list_page(i)
 
     def list_page(self, page_id):
         try:
             print(f'[!] Page {page_id}:')
+            items_to_print = list()
+
             for j in range(len(self.pages[page_id].items)):
                 item = self.pages[page_id].items[j]
-                data = self._deserialize_data(item.data, item.header)
-                print(f'[*] Item {j}, length {self.pages[page_id].item_ids[j].lp_len}:')
-                print(f'   {data}')
+                items_to_print.append(self._deserialize_data(item.data, item.header))
+                
+            self.print_data(items_to_print)
         except IndexError:
             print('[-] Non existing page index provided')
 
-    def get_item(self, page_id, item_id):
+    def read_item(self, page_id, item_id):
         try:
             item = self.pages[page_id].items[item_id]
             data = self._deserialize_data(item.data, item.header)
             print(f'[!] Page {page_id}:')
-            print(f'[*] Item {item_id}, length {self.pages[page_id].item_ids[item_id].lp_len}:')
-            print(f'   {data}')
+            
+            self.print_data([data])
 
             return data
         except IndexError:

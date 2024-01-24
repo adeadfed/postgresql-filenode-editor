@@ -69,7 +69,7 @@ def test_get_raw():
         filenode_path = pathlib.Path(FILENODE_PATH, sample_filenode['name'])
         filenode = Filenode(filenode_path)
         
-        filenode.get_item(page_id=0, item_id=0)
+        filenode.read_item(page_id=0, item_id=0)
 
 def test_get_datatype():
     for sample_filenode in sample_filenodes:
@@ -78,7 +78,7 @@ def test_get_datatype():
         datatype = DataType(sample_filenode['datatype'])
         filenode = Filenode(filenode_path, datatype=datatype)
         
-        filenode.get_item(page_id=0, item_id=0)
+        filenode.read_item(page_id=0, item_id=0)
 
 
 def test_update_raw():
@@ -94,7 +94,7 @@ def test_update_raw():
         filenode.save_to_path(filenode_new_path)
 
         filenode = Filenode(filenode_new_path)
-        assert filenode.get_item(0, 0) == sample_filenode['payload_raw']
+        assert filenode.read_item(0, 0) == sample_filenode['payload_raw']
 
 def test_update_datatype_inline():
     for sample_filenode in sample_filenodes:
@@ -115,7 +115,7 @@ def test_update_datatype_inline():
         filenode = Filenode(filenode_new_path, datatype=datatype)
         
         updated_values = list()
-        for field in filenode.get_item(0, 0):
+        for field in filenode.read_item(0, 0):
             value = field['value']
             if isinstance(value, bytes):
                 value = value.decode()
@@ -143,10 +143,10 @@ def test_update_datatype_null():
 
         filenode = Filenode(filenode_new_path, datatype=datatype)
         
-        print(filenode.get_item(0, 0))
+        print(filenode.read_item(0, 0))
 
         updated_values = list()
-        for field in filenode.get_item(0, 0):
+        for field in filenode.read_item(0, 0):
             print(field)
             value = field['value']
             if field['is_null']:
@@ -184,7 +184,7 @@ def test_update_datatype_new_item():
         
         updated_values = list()
         # new item be the last in the page
-        for field in filenode.get_item(last_page, len(filenode.pages[last_page].items) - 1):
+        for field in filenode.read_item(last_page, len(filenode.pages[last_page].items) - 1):
             value = field['value']
             if isinstance(value, bytes):
                 value = value.decode()
@@ -221,7 +221,7 @@ def test_update_datatype_new_page():
     
     updated_values = list()
     # new item be the last in the page
-    for field in filenode.get_item(last_page, len(filenode.pages[last_page].items) - 1):
+    for field in filenode.read_item(last_page, len(filenode.pages[last_page].items) - 1):
         value = field['value']
         if isinstance(value, bytes):
             value = value.decode()
