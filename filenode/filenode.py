@@ -2,6 +2,7 @@ import math
 import copy
 import base64
 import struct
+from loguru import logger
 from prettytable import PrettyTable
 
 from .page import Page
@@ -123,7 +124,7 @@ class Filenode:
                 offset += length
             return unserialized_data
         except Exception as e:
-            print(f'The following exception has occured during deserialization: {e}')
+            logger.exception('An exception occured during deserialization')
 
     def _serialize_data(self, item_data, item_header):
         try:
@@ -209,7 +210,7 @@ class Filenode:
             return item_data_bytes, item_header
         
         except Exception as e:
-            print(f'The following exception has occured during deserialization: {e}')
+            logger.exception('An exception occured during deserialization')
 
 
     def print_data(self, items_to_print):
@@ -243,7 +244,7 @@ class Filenode:
 
     def list_page(self, page_id):
         try:
-            print(f'[!] Page {page_id}:')
+            logger.success(f'Page {page_id}:')
             items_to_print = list()
 
             for j in range(len(self.pages[page_id].items)):
@@ -252,19 +253,19 @@ class Filenode:
                 
             self.print_data(items_to_print)
         except IndexError:
-            print('[-] Non existing page index provided')
+            logger.error('[-] Non existing page index provided')
 
     def read_item(self, page_id, item_id):
         try:
             item = self.pages[page_id].items[item_id]
             data = self._deserialize_data(item.data, item.header)
-            print(f'[!] Page {page_id}:')
+            logger.success(f'Page {page_id}:')
             
             self.print_data([data])
 
             return data
         except IndexError:
-            print('[-] Non existing page or item indexes provided')
+            logger.error('[-] Non existing page or item indexes provided')
 
 
     def update_item(self, page_id, item_id, new_item_data):
@@ -291,7 +292,7 @@ class Filenode:
                 self._update_item_inline(page_id, item_id, new_item_data, new_item_header)
             
         except IndexError:
-            print('[-] Non existing page or item indexes provided')
+            logger.error('[-] Non existing page or item indexes provided')
 
     def _update_item_inline(self, page_id, item_id, new_item_data, new_item_header):
         # set new item length in corresponding ItemId object

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+from loguru import logger
 
 from filenode import Filenode
 from helpers.argparse_types import * 
+from helpers.logger import configure_logger
 
 
 parser = argparse.ArgumentParser()
@@ -18,6 +20,8 @@ parser.add_argument('-d', '--datatype-csv', type=DataTypeCsv, help='Datatype CSV
 
 
 if __name__ == '__main__':
+    configure_logger()
+
     args = parser.parse_args()
     filenode = Filenode(args.filenode_path, args.datatype_csv)
     
@@ -30,16 +34,16 @@ if __name__ == '__main__':
         if args.page is not None and args.item is not None:
             filenode.read_item(args.page, args.item)
         else:
-            print('[-] please provide page and item indexes via --page and --item arguments')    
+            logger.error('please provide page and item indexes via --page and --item arguments')    
     if args.mode == 'raw_update':
         if args.page is not None and args.item is not None and args.b64_data is not None:
             filenode.update_item(args.page, args.item, args.b64_data)
             filenode.save_to_path(args.filenode_path.with_suffix('.new'))
         else:
-            print('[-] please provide page, item indexes, and new item data via the --page, --item, and --b64-data arguments')
+            logger.error('please provide page, item indexes, and new item data via the --page, --item, and --b64-data arguments')
     if args.mode == 'update':
         if args.page is not None and args.item is not None and args.csv_data is not None and args.datatype_csv is not None:
             filenode.update_item(args.page, args.item, args.csv_data)
             filenode.save_to_path(args.filenode_path.with_suffix('.new'))
         else:
-            print('[-] please provide page, item indexes, and new item data via the --page, --item, --datatype-csv and --csv-data arguments')
+            logger.error('please provide page, item indexes, and new item data via the --page, --item, --datatype-csv and --csv-data arguments')
