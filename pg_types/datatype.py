@@ -23,3 +23,13 @@ class DataType:
                     'length': int(_length),
                     'alignment': self._PG_TO_PY_TYPE_MAPPING[_alignment]
                 })
+
+
+class DataTypeRaw(DataType):
+    def __init__(self):
+        self.field_defs = [{
+            'name': 'raw_data',
+            'type': '',
+            'length': '',
+            'alignment': ''
+        }]

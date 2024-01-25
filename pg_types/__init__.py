@@ -1,5 +1,5 @@
 from .varlena import Varlena_1B, Varlena_4B
-from .datatype import DataType
+from .datatype import DataType, DataTypeRaw
 
 PARSEABLE_TYPES = [
     'oid',
@@ -19,4 +19,4 @@ PARSEABLE_TYPES = [
     'serial8'
 ]
 
-__all__ = ['Varlena_1B', 'Varlena_4B', 'DataType']
+__all__ = ['Varlena_1B', 'Varlena_4B', 'DataType', 'DataTypeRaw']

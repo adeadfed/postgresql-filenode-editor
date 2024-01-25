@@ -114,7 +114,8 @@ def test_update_raw():
         filenode.save_to_path(filenode_new_path)
 
         filenode = Filenode(filenode_new_path)
-        assert filenode.read_item(0, 0) == sample_filenode['payload_raw']
+        assert filenode.read_item(0, 0)[0]['value'] == \
+            sample_filenode['payload_raw']
 
 
 def test_update_datatype_inline():

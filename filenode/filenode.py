@@ -12,12 +12,13 @@ from .page.page_header_data import PageHeaderData, PdFlags
 from .item.t_infomask import HeapT_InfomaskFlags, HeapT_Infomask2Flags
 from .item.heap_tuple_header_data import HeapTupleHeaderData
 
-from pg_types import PARSEABLE_TYPES, Varlena_1B, Varlena_4B
+from pg_types import PARSEABLE_TYPES, Varlena_1B, Varlena_4B, DataType, \
+      DataTypeRaw
 
 
 class Filenode:
     def __init__(self, filenode_path, datatype=None):
-        self.datatype = datatype
+        self.datatype = datatype if datatype is not None else DataTypeRaw()
 
         with open(filenode_path, 'rb') as f:
             filenode_bytes = f.read()
@@ -30,74 +31,88 @@ class Filenode:
             self.pages.append(page)
             page_offset += page.header.length
 
+    def _deserialize_data_datatype(self, item_data, item_header):
+        deserialized_data = list()
+        offset = 0
+
+        # copy of nullmap
+        _nullmap = item_header.nullmap
+
+        for i in range(item_header.t_infomask2.natts):
+            # check if row has null values
+            field_def = self.datatype.field_defs[i]
+            if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
+                item_header.t_infomask.flags
+            ):
+                field_present = _nullmap & 0x1
+                _nullmap >>= 1
+                # if the field is null
+                if not field_present:
+                    deserialized_data.append({
+                        'name': field_def['name'],
+                        'type': field_def['type'],
+                        'value': b'',
+                        'is_null': True
+                    })
+                    continue
+
+            # handle fixed length fields
+            if field_def['length'] > 0:
+                length = field_def['length']
+                value = self._deserialize_fixed_len_field(
+                    field_def,
+                    item_data[offset:offset+length]
+                )
+
+            # handle varlena fields, e.g. text, varchar
+            elif field_def['length'] == -1:
+                varlena_field = self._deserialize_varlena_field(
+                    item_data[offset:]
+                )
+
+                value = varlena_field.value
+                length = varlena_field.size
+
+                # Varlena_1B is not padded
+                # if we encounter a Varlena_1B column, and the next
+                # column is not a Varlena, we would need to pad
+                # the data to match the 4 byte alignment
+                if i + 1 < item_header.t_infomask2.natts:
+                    if all([
+                        isinstance(varlena_field, Varlena_1B),
+                        self.datatype.field_defs[i+1]['length'] != -1
+                    ]):
+                        length += math.ceil((offset+length)/4) * \
+                            4 - (offset+length)
+            else:
+                raise Exception('the field is of neither fixed nor variable length')
+            # append the unserialized field to the output
+            deserialized_data.append({
+                'name': field_def['name'],
+                'type': field_def['type'],
+                'value': value,
+                'is_null': False
+            })
+
+            # move past the field we've just read
+            offset += length
+        return deserialized_data
+
+    def _deserialize_data_raw(self, item_data):
+        # if we are dealing with DataTypeRaw object, just return the data
+        return [{
+            'name': 'raw_data',
+            'type': '',
+            'value': item_data,
+            'is_null': False
+        }]
+
     def _deserialize_data(self, item_data, item_header):
         try:
-            deserialized_data = list()
-            offset = 0
-
-            # copy of nullmap
-            _nullmap = item_header.nullmap
-
-            for i in range(item_header.t_infomask2.natts):
-                # check if row has null values
-                field_def = self.datatype.field_defs[i]
-                if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
-                    item_header.t_infomask.flags
-                ):
-                    field_present = _nullmap & 0x1
-                    _nullmap >>= 1
-                    # if the field is null
-                    if not field_present:
-                        deserialized_data.append({
-                            'name': field_def['name'],
-                            'type': field_def['type'],
-                            'value': b'',
-                            'is_null': True
-                        })
-                        continue
-
-                # handle fixed length fields
-                if field_def['length'] > 0:
-                    length = field_def['length']
-                    value = self._deserialize_fixed_len_field(
-                        field_def,
-                        item_data[offset:offset+length]
-                    )
-
-                # handle varlena fields, e.g. text, varchar
-                elif field_def['length'] == -1:
-                    varlena_field = self._deserialize_varlena_field(
-                        item_data[offset:]
-                    )
-
-                    value = varlena_field.value
-                    length = varlena_field.size
-
-                    # Varlena_1B is not padded
-                    # if we encounter a Varlena_1B column, and the next
-                    # column is not a Varlena, we would need to pad
-                    # the data to match the 4 byte alignment
-                    if i + 1 < item_header.t_infomask2.natts:
-                        if all([
-                            isinstance(varlena_field, Varlena_1B),
-                            self.datatype.field_defs[i+1]['length'] != -1
-                        ]):
-                            length += math.ceil((offset+length)/4) * \
-                                4 - (offset+length)
-                else:
-                    raise Exception('the field is of neither fixed nor variable length')
-                # append the unserialized field to the output
-                deserialized_data.append({
-                    'name': field_def['name'],
-                    'type': field_def['type'],
-                    'value': value,
-                    'is_null': False
-                })
-
-                # move past the field we've just read
-                offset += length
-            return deserialized_data
-        except Exception as e:
+            if isinstance(self.datatype, DataTypeRaw):
+                return self._deserialize_data_raw(item_data)
+            return self._deserialize_data_datatype(item_data, item_header)
+        except Exception:
             logger.exception('An exception occured during deserialization')
 
     def _deserialize_fixed_len_field(self, field_def, field_bytes):
@@ -180,7 +195,7 @@ class Filenode:
                             )
                 else:
                     raise NotImplementedError(
-                        'Cannot serialize field with length 0'
+                        'the field is of neither fixed nor variable length'
                     )
 
             # set nullmap to 0 (default case)
@@ -253,20 +268,16 @@ class Filenode:
 
         # set field names according to the datatype
         # if it exists
-        if self.datatype:
-            page_field_names = [x['name'] for x in self.datatype.field_defs]
-        else:
-            page_field_names = ['raw_data']
+        page_field_names = [x['name'] for x in self.datatype.field_defs]
+
         page_table.field_names = ['item_no'] + page_field_names
 
         for i in range(len(items_to_print)):
             table_row = [i]
             # if datatype exists, parse item fields and add them to the row
-            if self.datatype:
-                table_row += [x['value'] for x in items_to_print[i]]
+            table_row += [x['value'] if x['value'] else 'NULL'
+                          for x in items_to_print[i]]
             # else, add entire raw item to the row
-            else:
-                table_row += [items_to_print[i]]
             page_table.add_row(table_row)
 
         print(page_table)
@@ -283,11 +294,9 @@ class Filenode:
             for j in range(len(self.pages[page_id].items)):
                 item = self.pages[page_id].items[j]
                 # deserialize data if datatype is present
-                if self.datatype:
-                    data = self._deserialize_data(item.data, item.header)
-                else:
-                    data = item.data
-                items_to_print.append(data)
+                items_to_print.append(
+                    self._deserialize_data(item.data, item.header)
+                )
 
             self.print_data(items_to_print)
         except IndexError:
@@ -297,11 +306,7 @@ class Filenode:
         try:
             item = self.pages[page_id].items[item_id]
             # deserialize data if datatype is present
-            if self.datatype:
-                data = self._deserialize_data(item.data, item.header)
-            else:
-                data = item.data
-
+            data = self._deserialize_data(item.data, item.header)
             logger.success(f'Page {page_id}:')
             self.print_data([data])
 
@@ -315,8 +320,8 @@ class Filenode:
             # check if we the user passed us CSV with datatype, or a raw
             # Base64-encoded data
             if isinstance(new_item_data, list):
-                # check if datatype is given py the user
-                if self.datatype is None:
+                # check if user gave us a proper datatype
+                if not type(self.datatype) is DataType:
                     raise Exception(
                         'Serialization requires a valid datatype of the \
                             filenode')
