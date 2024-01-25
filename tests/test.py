@@ -6,7 +6,7 @@ from base64 import b64encode
 from filenode import Filenode
 from pg_types import DataType
 
-FILENODE_PATH = './sample_filenodes'
+FILENODE_PATH = './tests/sample_filenodes'
 
 sample_filenodes = [
     {
