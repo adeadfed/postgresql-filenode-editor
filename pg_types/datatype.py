@@ -1,16 +1,14 @@
 import csv
 
-from .type_alignment import TypAlign
-
 
 class DataType:
     _INTERNAL_ATTRS = ('tableoid', 'ctid', 'xmin', 'xmax', 'cmin', 'cmax')
 
-    _ALIGNMENT_MAPPING = {
-        'c': TypAlign.CHAR,
-        's': TypAlign.SHORT,
-        'i': TypAlign.INT,
-        'd': TypAlign.DOUBLE
+    _PG_TO_PY_TYPE_MAPPING = {
+        'c': 'b',  # CHAR
+        's': 'h',  # SHORT
+        'i': 'i',  # INT
+        'd': 'q',  # DOUBLE
     }
 
     def __init__(self, csv_str):
@@ -23,5 +21,5 @@ class DataType:
                     'name': name,
                     'type': _type,
                     'length': int(_length),
-                    'alignment': self._ALIGNMENT_MAPPING[_alignment]
+                    'alignment': self._PG_TO_PY_TYPE_MAPPING[_alignment]
                 })
