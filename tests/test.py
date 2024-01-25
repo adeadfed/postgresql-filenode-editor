@@ -6,19 +6,9 @@ from base64 import b64encode
 from filenode import Filenode
 from pg_types import DataType
 
-FILENODE_PATH = './tests/sample_filenodes'
+FILENODE_PATH = './sample_filenodes'
 
 sample_filenodes = [
-    # {
-    #     'name': '1260',
-    #     'datatype': (
-    #         'tableoid,oid,4,i;cmax,cid,4,i;xmax,xid,4,i;cmin,cid,4,i;xmin,xid,'
-    #         '4,i;ctid,tid,6,s;oid,oid,4,i;rolname,name,64,c;rolsuper,bool,1,c;'
-    #         'rolinherit,bool,1,c;rolcreaterole,bool,1,c;rolcreatedb,bool,1,c;r'
-    #         'olcanlogin,bool,1,c;rolreplication,bool,1,c;rolbypassrls,bool,1,c'
-    #         ';rolconnlimit,int4,4,i;rolpassword,text,-1,i;rolvaliduntil,timest'
-    #         'amptz,8,d')
-    # },
     {
         'name': '40996',
         'datatype': (
