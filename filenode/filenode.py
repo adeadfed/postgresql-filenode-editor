@@ -26,7 +26,7 @@ class Filenode:
         page_offset = 0
         while page_offset < len(filenode_bytes):
             # parse header bytes of new page
-            page = Page(page_offset, filenode_bytes)
+            page = Page(filenode_bytes, page_offset)
             self.pages.append(page)
             page_offset += page.header.length
 
