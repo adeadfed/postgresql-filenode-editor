@@ -5,7 +5,7 @@ from filenode.item import Item
 
 
 class Page:
-    def __init__(self, offset, filenode_bytes):
+    def __init__(self, filenode_bytes, offset):
         self.offset = offset
         # parse page header
         self.header = PageHeaderData(

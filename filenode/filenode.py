@@ -26,7 +26,7 @@ class Filenode:
         page_offset = 0
         while page_offset < len(filenode_bytes):
             # parse header bytes of new page
-            page = Page(page_offset, filenode_bytes)
+            page = Page(filenode_bytes, page_offset)
             self.pages.append(page)
             page_offset += page.header.length
 
@@ -40,6 +40,7 @@ class Filenode:
 
             for i in range(item_header.t_infomask2.natts):
                 # check if row has null values
+                field_def = self.datatype.field_defs[i]
                 if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
                     item_header.t_infomask.flags
                 ):
@@ -48,29 +49,29 @@ class Filenode:
                     # if the field is null
                     if not field_present:
                         deserialized_data.append({
-                            'name': self.datatype.field_defs[i]['name'],
-                            'type': self.datatype.field_defs[i]['type'],
+                            'name': field_def['name'],
+                            'type': field_def['type'],
                             'value': b'',
                             'is_null': True
                         })
                         continue
 
                 # handle fixed length fields
-                if self.datatype.field_defs[i]['length'] > 0:
-                    length = self.datatype.field_defs[i]['length']
+                if field_def['length'] > 0:
+                    length = field_def['length']
                     value = self._deserialize_fixed_len_field(
-                        self.datatype.field_defs[i],
+                        field_def,
                         item_data[offset:offset+length]
                     )
 
                 # handle varlena fields, e.g. text, varchar
-                if self.datatype.field_defs[i]['length'] == -1:
+                elif field_def['length'] == -1:
                     varlena_field = self._deserialize_varlena_field(
                         item_data[offset:]
                     )
 
                     value = varlena_field.value
-                    length = varlena_field._get_size()
+                    length = varlena_field.size
 
                     # Varlena_1B is not padded
                     # if we encounter a Varlena_1B column, and the next
@@ -83,11 +84,12 @@ class Filenode:
                         ]):
                             length += math.ceil((offset+length)/4) * \
                                 4 - (offset+length)
-
+                else:
+                    raise Exception('the field is of neither fixed nor variable length')
                 # append the unserialized field to the output
                 deserialized_data.append({
-                    'name': self.datatype.field_defs[i]['name'],
-                    'type': self.datatype.field_defs[i]['type'],
+                    'name': field_def['name'],
+                    'type': field_def['type'],
                     'value': value,
                     'is_null': False
                 })
@@ -95,14 +97,14 @@ class Filenode:
                 # move past the field we've just read
                 offset += length
             return deserialized_data
-        except Exception:
+        except Exception as e:
             logger.exception('An exception occured during deserialization')
 
     def _deserialize_fixed_len_field(self, field_def, field_bytes):
         if field_bytes:
             if field_def['type'] in PARSEABLE_TYPES:
                 return struct.unpack(
-                    f'<{field_def["alignment"].value}',
+                    f'<{field_def["alignment"]}',
                     field_bytes
                 )[0]
         # not supported fixed length type or empty data
@@ -213,7 +215,7 @@ class Filenode:
         # check if the field type is supported by the parser
         if field_def['type'] in PARSEABLE_TYPES:
             return struct.pack(
-                f'<{field_def["alignment"].value}',
+                f'<{field_def["alignment"]}',
                 int(field_value)
             )
         # else we would need to set the raw byte value of the field from the
