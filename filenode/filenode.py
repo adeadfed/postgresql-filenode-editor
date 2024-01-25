@@ -97,14 +97,14 @@ class Filenode:
                 # move past the field we've just read
                 offset += length
             return deserialized_data
-        except Exception:
+        except Exception as e:
             logger.exception('An exception occured during deserialization')
 
     def _deserialize_fixed_len_field(self, field_def, field_bytes):
         if field_bytes:
             if field_def['type'] in PARSEABLE_TYPES:
                 return struct.unpack(
-                    f'<{field_def["alignment"].value}',
+                    f'<{field_def["alignment"]}',
                     field_bytes
                 )[0]
         # not supported fixed length type or empty data
@@ -215,7 +215,7 @@ class Filenode:
         # check if the field type is supported by the parser
         if field_def['type'] in PARSEABLE_TYPES:
             return struct.pack(
-                f'<{field_def["alignment"].value}',
+                f'<{field_def["alignment"]}',
                 int(field_value)
             )
         # else we would need to set the raw byte value of the field from the
