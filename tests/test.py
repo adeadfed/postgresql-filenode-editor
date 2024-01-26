@@ -149,7 +149,7 @@ def test_update_datatype_inline():
         assert sample_filenode['payload_dt_inline'] == ','.join(updated_values)
 
 
-def test_update_datatype_null():
+def test_update_datatype_to_null():
     for sample_filenode in sample_filenodes:
         csv_payload = list(csv.reader(
             StringIO(sample_filenode['payload_dt_null'])))[0]
@@ -181,6 +181,43 @@ def test_update_datatype_null():
             updated_values.append(value)
 
         assert sample_filenode['payload_dt_null'] == ','.join(updated_values)
+
+
+def test_update_datatype_to_non_null():
+    # 41016 only
+    sample_filenode = sample_filenodes[1]
+    csv_payload = list(csv.reader(
+        StringIO(sample_filenode['payload_dt_inline'])))[0]
+
+    datatype = DataType(sample_filenode['datatype'])
+
+    filenode_path = pathlib.Path(FILENODE_PATH, sample_filenode['name'])
+    filenode_new_path = pathlib.Path(
+        tempfile.gettempdir(),
+        sample_filenode['name']
+    ).with_suffix('.new')
+
+    filenode = Filenode(filenode_path, datatype=datatype)
+    # use 4th item in the list, it contains 2 null fields
+    filenode.update_item(0, 4, csv_payload)
+    filenode.save_to_path(filenode_new_path)
+
+    filenode = Filenode(filenode_new_path, datatype=datatype)
+
+    updated_values = list()
+    # read last item from the list
+    for field in filenode.read_item(0, len(filenode.pages[0].items) - 1):
+
+        value = field['value']
+        if field['is_null']:
+            value = 'NULL'
+        elif isinstance(value, bytes):
+            value = value.decode()
+        else:
+            value = str(value)
+        updated_values.append(value)
+
+    assert sample_filenode['payload_dt_inline'] == ','.join(updated_values)
 
 
 def test_update_datatype_new_item():

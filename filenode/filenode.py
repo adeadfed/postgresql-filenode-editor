@@ -217,9 +217,12 @@ class Filenode:
                 # '00101' or 5
                 _nullmap = int(''.join(str(int(x != 'NULL'))
                                for x in reversed(item_data)), 2)
+            else:
+                # specifically unset HASNULL flag from header
+                item_header.t_infomask.flags &= ~HeapT_InfomaskFlags.HEAP_HASNULL
 
             # set nullmap value to header
-            item_header.nullmap = _nullmap
+            item_header.nullmap = _nullmap               
 
             return serialized_data, item_header
 
@@ -386,14 +389,14 @@ class Filenode:
 
         # set corresponding flags in infomask to indicate that the new item
         # is the updated version of the target item
-        new_item.header.t_infomask.flags += HeapT_InfomaskFlags.HEAP_XMAX_INVALID | \
+        new_item.header.t_infomask.flags |= HeapT_InfomaskFlags.HEAP_XMAX_INVALID | \
             HeapT_InfomaskFlags.HEAP_UPDATED
 
         # set the corresponding flags in infomask to indicate that the old
         # item has been updated with the new one
-        target_item.header.t_infomask.flags -= HeapT_InfomaskFlags.HEAP_UPDATED | \
-            HeapT_InfomaskFlags.HEAP_XMAX_INVALID
-        target_item.header.t_infomask2.flags += HeapT_Infomask2Flags.HEAP_HOT_UPDATED
+        target_item.header.t_infomask.flags &= ~(HeapT_InfomaskFlags.HEAP_UPDATED | \
+            HeapT_InfomaskFlags.HEAP_XMAX_INVALID)
+        target_item.header.t_infomask2.flags |= HeapT_Infomask2Flags.HEAP_HOT_UPDATED
 
         # set xmin and xmax in the old item to be 1 less than the current one
         # to hopefully mark it as "stale"
