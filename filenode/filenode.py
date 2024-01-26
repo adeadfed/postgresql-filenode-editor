@@ -77,6 +77,9 @@ class Filenode:
                 # if we encounter a Varlena_1B column, and the next
                 # column is not a Varlena, we would need to pad
                 # the data to match the 4 byte alignment
+
+                # TODO: we do not account for null fields here!!! 
+                # this needs rework done
                 if i + 1 < item_header.t_infomask2.natts:
                     if all([
                         isinstance(varlena_field, Varlena_1B),
@@ -180,6 +183,8 @@ class Filenode:
                     # serialize varlena object to bytes
                     serialized_data += varlena_field.to_bytes()
 
+                    # TODO: we do not account for null fields here
+                    # this needs rework!!!
                     # Varlena_1B is not padded
                     # if we encounter a Varlena_1B column, and the next
                     # column is not a Varlena, we would need to pad
