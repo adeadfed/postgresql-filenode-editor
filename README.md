@@ -52,26 +52,6 @@ All commands will now properly parse and present data in a human-readable format
 
 ![Datatype mode](demo/demo_datatype.gif)
 
-#### Listing all items and pages
-```bash
-python3 postgresql_filenode_editor.py --datatype-csv <DATATYPE_CSV> --filenode-path <PATH_TO_FILENODE> --mode list
-```
-
-#### Listing all items in one page
-```bash
-python3 postgresql_filenode_editor.py --datatype-csv <DATATYPE_CSV> --filenode-path <PATH_TO_FILENODE> --mode list --page 0
-```
-
-#### Reading single item
-```bash
-python3 postgresql_filenode_editor.py --datatype-csv <DATATYPE_CSV> --filenode-path <PATH_TO_FILENODE> --mode read --page 0 --item 0
-```
-
-#### Updating single item
-```bash
-python3 postgresql_filenode_editor.py --datatype-csv <DATATYPE_CSV> --filenode-path <PATH_TO_FILENODE> --mode update --page 0 --item 0 --csv-data <NEW_ITEM_DATA_CSV>
-```
-
 ### Raw parsing
 Without a proper datatype provided, the tool will only display raw data bytes. Editing in this mode is not does not guarantee stable results due to the missing information about NULL fields and their types.
 
@@ -80,20 +60,25 @@ Resulting filenodes may not be properly reinterpreted by the PostgreSQL servers.
 
 #### Listing all items and pages
 ```bash
-python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode list
+python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode list [--datatype-csv <OPTIONAL_DATATYPE_CSV>]
 ```
 
 #### Listing all items in one page
 ```bash
-python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode list --page 0
+python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode list --page 0 [--datatype-csv <OPTIONAL_DATATYPE_CSV>]
 ```
 
 #### Reading single item
 ```bash
-python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode read --page 0 --item 0
+python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode read --page 0 --item 0 [--datatype-csv <OPTIONAL_DATATYPE_CSV>]
 ```
 
-#### Updating single item
+#### Updating single item (datatype)
 ```bash
-python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode update --page 0 --item 0 --csv-data <NEW_ITEM_DATA_CSV>
+python3 postgresql_filenode_editor.py --datatype-csv <DATATYPE_CSV> --filenode-path <PATH_TO_FILENODE> --mode update --page 0 --item 0 --csv-data <NEW_ITEM_DATA_CSV>
+```
+
+#### Updating single item (raw)
+```bash
+python3 postgresql_filenode_editor.py --filenode-path <PATH_TO_FILENODE> --mode raw_update --page 0 --item 0 --b64-data <NEW_ITEM_DATA_B64>
 ```
