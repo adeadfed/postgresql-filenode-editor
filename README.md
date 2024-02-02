@@ -1,5 +1,5 @@
 # PostgreSQL Filenode Editor
-PostgreSQL Filenode Editor is tool that enables users to directly read and update data within PostgreSQL filenodes, the on-disk storage structure of PostgreSQL databases. 
+PostgreSQL Filenode Editor allows you to directly read and update data within PostgreSQL filenodes, the on-disk storage structure of PostgreSQL databases. 
 
 Both raw and datatype-based parsing modes supported. However,the tool requires additional information, stored in a separate PostgreSQL table, to properly reinterpret row data to use the latter one.
 
