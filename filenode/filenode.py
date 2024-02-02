@@ -376,7 +376,7 @@ class Filenode:
             else:
                 # else try to use raw bytes from a user-supplied b64
                 # string
-                new_item_data = base64.b64decode(new_item_data)
+                # just copy the header
                 new_item_header = item.header
 
             # if we update the item with new data that is shorter than
