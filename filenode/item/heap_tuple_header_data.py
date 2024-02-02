@@ -30,11 +30,16 @@ class HeapTupleHeaderData:
         self.nullmap = 0
 
         # if there is a null map, try to read it now
-        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(self.t_infomask.flags):
-            # null map has the bit size of the attribute number alligned to bytes
+        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
+            self.t_infomask.flags
+        ):
+            # null map has the bit size of the attribute number alligned
+            # to bytes
             self.nullmap_byte_size = math.ceil(self.t_infomask2.natts / 8)
             self.nullmap = int.from_bytes(
-                filenode_bytes[offset+23:offset+23+self.nullmap_byte_size], byteorder='little')
+                filenode_bytes[offset+23:offset+23+self.nullmap_byte_size],
+                byteorder='little'
+            )
 
     def to_bytes(self):
         heap_tuple_header_bytes = b''
@@ -46,8 +51,11 @@ class HeapTupleHeaderData:
         heap_tuple_header_bytes += self.t_infomask.to_bytes()
         heap_tuple_header_bytes += struct.pack('B', self.t_hoff)
 
-        # for some reason this fails without explicit typecast in HeapT_InfomaskFlags enum object
-        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(self.t_infomask.flags):
+        # for some reason this fails without explicit typecast in
+        # HeapT_InfomaskFlags enum object
+        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
+            self.t_infomask.flags
+        ):
             heap_tuple_header_bytes += self.nullmap.to_bytes(
                 self.nullmap_byte_size, byteorder='little')
         else:

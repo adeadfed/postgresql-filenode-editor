@@ -31,33 +31,56 @@ class Filenode:
             self.pages.append(page)
             page_offset += page.header.length
 
+    def _apply_item_nullmap_to_datatype_from_header(self, item_header):
+        item_datatype = list()
+        # if there is a nullmap present, process it
+        if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
+                item_header.t_infomask.flags
+        ):
+            # copy of nullmap
+            _nullmap = item_header.nullmap
+            for field_def in self.datatype.field_defs:
+                # check if row has null values
+                field_present = _nullmap & 0x1
+                _nullmap >>= 1
+
+                item_datatype.append(
+                    field_def | {'is_null': not field_present}
+                )
+        # else just set all fields to not null
+        else:
+            for field_def in self.datatype.field_defs:
+                item_datatype.append(
+                    field_def | {'is_null': False}
+                )
+        return item_datatype
+
+    def _apply_item_nullmap_to_datatype_from_data(self, item_data):
+        item_datatype = list()
+
+        for field_def, item_data in zip(self.datatype.field_defs, item_data):
+            # check if row has null values
+            item_datatype.append(
+                field_def | {'is_null': item_data == 'NULL'}
+            )
+        return item_datatype
+
     def _deserialize_data_datatype(self, item_data, item_header):
         deserialized_data = list()
         offset = 0
 
-        # copy of nullmap
-        _nullmap = item_header.nullmap
+        item_datatype = self._apply_item_nullmap_to_datatype_from_header(
+            item_header)
 
-        for i in range(item_header.t_infomask2.natts):
-            # check if row has null values
-            field_def = self.datatype.field_defs[i]
-            if HeapT_InfomaskFlags.HEAP_HASNULL in HeapT_InfomaskFlags(
-                item_header.t_infomask.flags
-            ):
-                field_present = _nullmap & 0x1
-                _nullmap >>= 1
-                # if the field is null
-                if not field_present:
-                    deserialized_data.append({
-                        'name': field_def['name'],
-                        'type': field_def['type'],
-                        'value': b'',
-                        'is_null': True
-                    })
-                    continue
+        for i in range(len(item_datatype)):
+            field_def = item_datatype[i]
+            # handle null fields
+            if field_def['is_null']:
+                length = 0
+                value = b''
 
             # handle fixed length fields
-            if field_def['length'] > 0:
+            elif field_def['length'] > 0:
                 length = field_def['length']
                 value = self._deserialize_fixed_len_field(
                     field_def,
@@ -75,26 +98,27 @@ class Filenode:
 
                 # Varlena_1B is not padded
                 # if we encounter a Varlena_1B column, and the next
-                # column is not a Varlena, we would need to pad
-                # the data to match the 4 byte alignment
-
-                # TODO: we do not account for null fields here!!! 
-                # this needs rework done
-                if i + 1 < item_header.t_infomask2.natts:
+                # column is not a Varlena, and is not null, we would
+                # need to pad the data to match the 4 byte alignment
+                if i + 1 < len(item_datatype):
                     if all([
                         isinstance(varlena_field, Varlena_1B),
-                        self.datatype.field_defs[i+1]['length'] != -1
+                        item_datatype[i+1]['length'] != -1,
+                        not item_datatype[i+1]['is_null']
                     ]):
                         length += math.ceil((offset+length)/4) * \
                             4 - (offset+length)
+
             else:
-                raise Exception('the field is of neither fixed nor variable length')
+                raise Exception('the field is of neither fixed nor \
+                                variable length')
+
             # append the unserialized field to the output
             deserialized_data.append({
                 'name': field_def['name'],
                 'type': field_def['type'],
                 'value': value,
-                'is_null': False
+                'is_null': field_def['is_null']
             })
 
             # move past the field we've just read
@@ -162,14 +186,17 @@ class Filenode:
         try:
             # if datatype is present, try to serialize the data into bytes
             serialized_data = b''
-            for i in range(len(self.datatype.field_defs)):
-                field_def = self.datatype.field_defs[i]
 
-                # if field is null, skip the processing
-                if item_data[i] == 'NULL':
+            item_datatype = self._apply_item_nullmap_to_datatype_from_data(
+                item_data)
+
+            for i in range(len(item_datatype)):
+                field_def = item_datatype[i]
+                # handle null fields
+                if field_def['is_null']:
                     continue
                 # handle fixed length data fields
-                if field_def['length'] > 0:
+                elif field_def['length'] > 0:
                     serialized_data += self._serialize_fixed_len_field(
                         field_def,
                         item_data[i]
@@ -183,16 +210,15 @@ class Filenode:
                     # serialize varlena object to bytes
                     serialized_data += varlena_field.to_bytes()
 
-                    # TODO: we do not account for null fields here
-                    # this needs rework!!!
                     # Varlena_1B is not padded
                     # if we encounter a Varlena_1B column, and the next
-                    # column is not a Varlena, we would need to pad
-                    # the data to match the 4 byte alignment
-                    if i + 1 < item_header.t_infomask2.natts:
+                    # column is not a Varlena, and is not null, we would
+                    # need to pad the data to match the 4 byte alignment
+                    if i + 1 < len(item_datatype):
                         if all([
                             isinstance(varlena_field, Varlena_1B),
-                            self.datatype.field_defs[i+1]['length'] != -1
+                            item_datatype[i+1]['length'] != -1,
+                            not item_datatype[i+1]['is_null']
                         ]):
                             serialized_data += bytes(
                                 math.ceil(len(serialized_data)/4)*4 -
@@ -207,9 +233,10 @@ class Filenode:
             _nullmap = 0
             # if any of the fields is null, we need to recalculate
             # nullmap value
-            if any(value == 'NULL' for value in item_data):
+            if any(f['is_null'] for f in item_datatype):
                 # indicate in header that we have a nullmap
-                item_header.t_infomask.flags |= HeapT_InfomaskFlags.HEAP_HASNULL
+                item_header.t_infomask.flags |= \
+                    HeapT_InfomaskFlags.HEAP_HASNULL
                 # for every field value construct a nullmap
                 # NULL field in nullmap will be marked as 0
                 # non-null fields will be marked as 1
@@ -220,14 +247,15 @@ class Filenode:
                 # [1, NULL, Test, NULL, NULL]
                 # will produce the following bitmap
                 # '00101' or 5
-                _nullmap = int(''.join(str(int(x != 'NULL'))
-                               for x in reversed(item_data)), 2)
+                _nullmap = int(''.join(str(int(not f['is_null']))
+                               for f in reversed(item_datatype)), 2)
             else:
                 # specifically unset HASNULL flag from header
-                item_header.t_infomask.flags &= ~HeapT_InfomaskFlags.HEAP_HASNULL
+                item_header.t_infomask.flags &= \
+                    ~HeapT_InfomaskFlags.HEAP_HASNULL
 
             # set nullmap value to header
-            item_header.nullmap = _nullmap               
+            item_header.nullmap = _nullmap
 
             return serialized_data, item_header
 
@@ -338,8 +366,8 @@ class Filenode:
                 # fields
                 if len(self.datatype.field_defs) != len(new_item_data):
                     raise Exception(
-                        'Number of supplied values in --data-csv parameter does \
-                        not match the number of fields in datatype')
+                        'Number of supplied values in --data-csv parameter \
+                            does not match the number of fields in datatype')
                 # try to serialize data into raw bytes using datatype
                 new_item_data, new_item_header = self._serialize_data(
                     new_item_data, item.header)
@@ -394,14 +422,19 @@ class Filenode:
 
         # set corresponding flags in infomask to indicate that the new item
         # is the updated version of the target item
-        new_item.header.t_infomask.flags |= HeapT_InfomaskFlags.HEAP_XMAX_INVALID | \
+        new_item.header.t_infomask.flags |= (
+            HeapT_InfomaskFlags.HEAP_XMAX_INVALID |
             HeapT_InfomaskFlags.HEAP_UPDATED
+        )
 
-        # set the corresponding flags in infomask to indicate that the old
-        # item has been updated with the new one
-        target_item.header.t_infomask.flags &= ~(HeapT_InfomaskFlags.HEAP_UPDATED | \
-            HeapT_InfomaskFlags.HEAP_XMAX_INVALID)
-        target_item.header.t_infomask2.flags |= HeapT_Infomask2Flags.HEAP_HOT_UPDATED
+        # set the corresponding flags in infomask to ivalue == ndicate that
+        # the old item has been updated with the new one
+        target_item.header.t_infomask.flags &= ~(
+            HeapT_InfomaskFlags.HEAP_UPDATED |
+            HeapT_InfomaskFlags.HEAP_XMAX_INVALID
+        )
+        target_item.header.t_infomask2.flags |= \
+            HeapT_Infomask2Flags.HEAP_HOT_UPDATED
 
         # set xmin and xmax in the old item to be 1 less than the current one
         # to hopefully mark it as "stale"
@@ -430,9 +463,10 @@ class Filenode:
             self._update_item_new_page(page_id, new_item_id, new_item)
         else:
             # adjust empty space offsets in page header
-            # shift pd_lower up 4 bytes due to the new ItemId object being added
-            # shift pd_upper down by the length of the new item
+            # shift pd_lower up 4 bytes due to the new ItemId object
+            # being added
             self.pages[page_id].header.pd_lower += 4
+            # shift pd_upper down by the length of the new item
             self.pages[page_id].header.pd_upper -= new_item_byte_length
             # adjust offset in the ItemIdData object
             # new item will start at the pd_upper now
@@ -452,7 +486,8 @@ class Filenode:
         # accordingly
         new_item_byte_length = math.ceil(len(new_item.to_bytes()) / 8) * 8
         new_page.header.pd_lower = PageHeaderData._FIELD_SIZE + 4
-        new_page.header.pd_upper = new_page.header.length - new_item_byte_length
+        new_page.header.pd_upper = new_page.header.length - \
+            new_item_byte_length
 
         # adjust offset in the ItemIdData object
         new_item_id.lp_off = new_page.header.pd_upper
