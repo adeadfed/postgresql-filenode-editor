@@ -186,6 +186,8 @@ class Filenode:
         try:
             # if datatype is present, try to serialize the data into bytes
             serialized_data = b''
+            # avoid modifying original item header during serialization
+            _item_header = copy.deepcopy(item_header)
 
             item_datatype = self._apply_item_nullmap_to_datatype_from_data(
                 item_data)
@@ -235,7 +237,7 @@ class Filenode:
             # nullmap value
             if any(f['is_null'] for f in item_datatype):
                 # indicate in header that we have a nullmap
-                item_header.t_infomask.flags |= \
+                _item_header.t_infomask.flags |= \
                     HeapT_InfomaskFlags.HEAP_HASNULL
                 # for every field value construct a nullmap
                 # NULL field in nullmap will be marked as 0
@@ -251,13 +253,13 @@ class Filenode:
                                for f in reversed(item_datatype)), 2)
             else:
                 # specifically unset HASNULL flag from header
-                item_header.t_infomask.flags &= \
+                _item_header.t_infomask.flags &= \
                     ~HeapT_InfomaskFlags.HEAP_HASNULL
 
             # set nullmap value to header
-            item_header.nullmap = _nullmap
+            _item_header.nullmap = _nullmap
 
-            return serialized_data, item_header
+            return serialized_data, _item_header
 
         except Exception:
             logger.exception('An exception occured during deserialization')
