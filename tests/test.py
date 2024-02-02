@@ -92,7 +92,7 @@ def test_update_raw():
         ).with_suffix('.new')
 
         filenode = Filenode(filenode_path)
-        filenode.update_item(0, 0, b64encode(sample_filenode['payload_raw']))
+        filenode.update_item(0, 0, sample_filenode['payload_raw'])
         filenode.save_to_path(filenode_new_path)
 
         filenode = Filenode(filenode_new_path)
