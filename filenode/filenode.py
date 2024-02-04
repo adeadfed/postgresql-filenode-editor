@@ -313,7 +313,7 @@ class Filenode:
         for i in range(len(items_to_print)):
             table_row = [i]
             # if datatype exists, parse item fields and add them to the row
-            table_row += [x['value'] if x['value'] else 'NULL'
+            table_row += ['NULL' if x['is_null'] else x['value']
                           for x in items_to_print[i]]
             # else, add entire raw item to the row
             page_table.add_row(table_row)
