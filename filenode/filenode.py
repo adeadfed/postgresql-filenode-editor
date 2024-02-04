@@ -95,23 +95,28 @@ class Filenode:
 
                 value = varlena_field.value
                 length = varlena_field.size
-
-                # Varlena_1B is not padded
-                # if we encounter a Varlena_1B column, and the next
-                # column is not a Varlena, and is not null, we would
-                # need to pad the data to match the 4 byte alignment
-                if i + 1 < len(item_datatype):
-                    if all([
-                        isinstance(varlena_field, Varlena_1B),
-                        item_datatype[i+1]['length'] != -1,
-                        not item_datatype[i+1]['is_null']
-                    ]):
-                        length += math.ceil((offset+length)/4) * \
-                            4 - (offset+length)
-
             else:
                 raise Exception('the field is of neither fixed nor \
                                 variable length')
+            # some fields like Varlena_1B and 1 byte values are 
+            # not padded
+
+            # if we encounter such field, and the next non null
+            # column requires padding, we would need to pad the
+            # data to match the 4 byte alignment
+
+            # get next non null column
+            next_field_def = self.datatype._get_next_non_null_field(
+                item_datatype[i+1:])
+
+            if next_field_def:
+                if all([
+                    not self.datatype._field_requires_padding(field_def),
+                    self.datatype._field_requires_padding(next_field_def)
+                ]):
+                    length += math.ceil((offset+length)/4) * \
+                        4 - (offset+length)
+
 
             # append the unserialized field to the output
             deserialized_data.append({
@@ -211,25 +216,28 @@ class Filenode:
                     )
                     # serialize varlena object to bytes
                     serialized_data += varlena_field.to_bytes()
-
-                    # Varlena_1B is not padded
-                    # if we encounter a Varlena_1B column, and the next
-                    # column is not a Varlena, and is not null, we would
-                    # need to pad the data to match the 4 byte alignment
-                    if i + 1 < len(item_datatype):
-                        if all([
-                            isinstance(varlena_field, Varlena_1B),
-                            item_datatype[i+1]['length'] != -1,
-                            not item_datatype[i+1]['is_null']
-                        ]):
-                            serialized_data += bytes(
-                                math.ceil(len(serialized_data)/4)*4 -
-                                len(serialized_data)
-                            )
                 else:
                     raise NotImplementedError(
                         'the field is of neither fixed nor variable length'
                     )
+            # some fields like Varlena_1B and 1 byte values are 
+            # not padded
+
+            # if we encounter such field, and the next non null
+            # column requires padding, we would need to pad the
+            # data to match the 4 byte alignment
+
+            # get next non null column
+            next_field_def = self.datatype._get_next_non_null_field(
+                item_datatype[i+1:])
+
+            if next_field_def:
+                if all([
+                        not self.datatype._field_requires_padding(field_def),
+                        self.datatype._field_requires_padding(next_field_def),
+                    ]):
+                        length += math.ceil((len(serialized_data)+length)/4) * \
+                            4 - (len(serialized_data)+length)
 
             # set nullmap to 0 (default case)
             _nullmap = 0
