@@ -25,10 +25,10 @@ class DataType:
                     'alignment': self._PG_TO_PY_TYPE_MAPPING[_alignment]
                 })
 
-    def _field_requires_padding(self, field_def):
-        return not any([
+    def _field_no_padding(self, field_def):
+        return any([
             field_def['alignment'] == 'b',
-            field_def['length'] == '-1'
+            field_def['length'] == -1
         ])
     
     def _get_next_non_null_field(self, datatype):

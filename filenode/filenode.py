@@ -111,8 +111,8 @@ class Filenode:
 
             if next_field_def:
                 if all([
-                    not self.datatype._field_requires_padding(field_def),
-                    self.datatype._field_requires_padding(next_field_def)
+                    self.datatype._field_no_padding(field_def),
+                    not self.datatype._field_no_padding(next_field_def)
                 ]):
                     length += math.ceil((offset+length)/4) * \
                         4 - (offset+length)
@@ -220,24 +220,26 @@ class Filenode:
                     raise NotImplementedError(
                         'the field is of neither fixed nor variable length'
                     )
-            # some fields like Varlena_1B and 1 byte values are 
-            # not padded
+                # some fields like Varlena_1B and 1 byte values are 
+                # not padded
 
-            # if we encounter such field, and the next non null
-            # column requires padding, we would need to pad the
-            # data to match the 4 byte alignment
+                # if we encounter such field, and the next non null
+                # column requires padding, we would need to pad the
+                # data to match the 4 byte alignment
 
-            # get next non null column
-            next_field_def = self.datatype._get_next_non_null_field(
-                item_datatype[i+1:])
+                # get next non null column
+                next_field_def = self.datatype._get_next_non_null_field(
+                    item_datatype[i+1:])
 
-            if next_field_def:
-                if all([
-                        not self.datatype._field_requires_padding(field_def),
-                        self.datatype._field_requires_padding(next_field_def),
-                    ]):
-                        length += math.ceil((len(serialized_data)+length)/4) * \
-                            4 - (len(serialized_data)+length)
+                if next_field_def:
+                    if all([
+                            self.datatype._field_no_padding(field_def),
+                            not self.datatype._field_no_padding(next_field_def),
+                        ]):
+                            serialized_data += bytes(
+                                math.ceil(len(serialized_data)/4)*4 -
+                                len(serialized_data)
+                            )
 
             # set nullmap to 0 (default case)
             _nullmap = 0
