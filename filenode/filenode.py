@@ -98,7 +98,7 @@ class Filenode:
             else:
                 raise Exception('the field is of neither fixed nor \
                                 variable length')
-            # some fields like Varlena_1B and 1 byte values are 
+            # some fields like Varlena_1B and 1 byte values are
             # not padded
 
             # if we encounter such field, and the next non null
@@ -116,7 +116,6 @@ class Filenode:
                 ]):
                     length += math.ceil((offset+length)/4) * \
                         4 - (offset+length)
-
 
             # append the unserialized field to the output
             deserialized_data.append({
@@ -220,7 +219,7 @@ class Filenode:
                     raise NotImplementedError(
                         'the field is of neither fixed nor variable length'
                     )
-                # some fields like Varlena_1B and 1 byte values are 
+                # some fields like Varlena_1B and 1 byte values are
                 # not padded
 
                 # if we encounter such field, and the next non null
@@ -233,13 +232,14 @@ class Filenode:
 
                 if next_field_def:
                     if all([
-                            self.datatype._field_no_padding(field_def),
-                            not self.datatype._field_no_padding(next_field_def),
-                        ]):
-                            serialized_data += bytes(
-                                math.ceil(len(serialized_data)/4)*4 -
-                                len(serialized_data)
-                            )
+                        self.datatype._field_no_padding(field_def),
+                        not self.datatype._field_no_padding(
+                            next_field_def),
+                    ]):
+                        serialized_data += bytes(
+                            math.ceil(len(serialized_data)/4)*4 -
+                            len(serialized_data)
+                        )
 
             # set nullmap to 0 (default case)
             _nullmap = 0
