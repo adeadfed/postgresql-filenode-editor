@@ -1,5 +1,4 @@
 import csv
-from .varlena import Varlena_1B
 
 
 class DataType:
@@ -30,11 +29,12 @@ class DataType:
             field_def['alignment'] == 'b',
             field_def['length'] == -1
         ])
-    
+
     def _get_next_non_null_field(self, datatype):
         for field_def in datatype:
             if not field_def['is_null']:
                 return field_def
+
 
 class DataTypeRaw(DataType):
     def __init__(self):
